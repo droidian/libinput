@@ -55,7 +55,9 @@ fallback_lid_notify_toggle(struct fallback_dispatch *dispatch,
 	if (dispatch->lid.is_closed ^ dispatch->lid.is_closed_client_state) {
 		switch_notify_toggle(&device->base,
 				     time,
-				     LIBINPUT_SWITCH_LID,
+				     (device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) ?
+				         LIBINPUT_SWITCH_KEYPAD_SLIDE :
+				         LIBINPUT_SWITCH_LID,
 				     dispatch->lid.is_closed);
 		dispatch->lid.is_closed_client_state = dispatch->lid.is_closed;
 	}
@@ -684,6 +686,10 @@ fallback_lid_keyboard_event(uint64_t time,
 {
 	struct fallback_dispatch *dispatch = fallback_dispatch(data);
 
+	uint16_t event_code = (dispatch->device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) ?
+								SW_KEYPAD_SLIDE :
+								SW_LID;
+
 	if (!dispatch->lid.is_closed)
 		return;
 
@@ -695,7 +701,7 @@ fallback_lid_keyboard_event(uint64_t time,
 		int rc;
 		struct input_event ev[2];
 
-		ev[0] = input_event_init(0, EV_SW, SW_LID, 0);
+		ev[0] = input_event_init(0, EV_SW, event_code, 0);
 		ev[1] = input_event_init(0, EV_SYN, SYN_REPORT, 0);
 
 		rc = write(fd, ev, sizeof(ev));
@@ -766,6 +772,7 @@ fallback_process_switch(struct fallback_dispatch *dispatch,
 
 	switch (e->code) {
 	case SW_LID:
+	case SW_KEYPAD_SLIDE:
 		is_closed = !!e->value;
 
 		fallback_lid_toggle_keyboard_listeners(dispatch, is_closed);
@@ -1181,12 +1188,14 @@ fallback_interface_sync_initial_state(struct evdev_device *device,
 	struct fallback_dispatch *dispatch = fallback_dispatch(evdev_dispatch);
 	uint64_t time = libinput_now(evdev_libinput_context(device));
 
-	if (device->tags & EVDEV_TAG_LID_SWITCH) {
+	if (device->tags & EVDEV_TAG_LID_SWITCH || device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) {
 		struct libevdev *evdev = device->evdev;
 
 		dispatch->lid.is_closed = libevdev_get_event_value(evdev,
 								   EV_SW,
-								   SW_LID);
+								   (device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) ?
+								       SW_KEYPAD_SLIDE :
+								       SW_LID);
 		dispatch->lid.is_closed_client_state = false;
 
 		/* For the initial state sync, we depend on whether the lid switch
@@ -1292,7 +1301,7 @@ fallback_lid_pair_keyboard(struct evdev_device *lid_switch,
 	size_t count = 0;
 
 	if ((keyboard->tags & EVDEV_TAG_KEYBOARD) == 0 ||
-	    (lid_switch->tags & EVDEV_TAG_LID_SWITCH) == 0)
+	    (lid_switch->tags & EVDEV_TAG_LID_SWITCH || lid_switch->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) == 0)
 		return;
 
 	if ((keyboard->tags & EVDEV_TAG_INTERNAL_KEYBOARD) == 0)
@@ -1649,7 +1658,7 @@ fallback_dispatch_init_switch(struct fallback_dispatch *dispatch,
 
 	list_init(&dispatch->lid.paired_keyboard_list);
 
-	if (device->tags & EVDEV_TAG_LID_SWITCH) {
+	if (device->tags & EVDEV_TAG_LID_SWITCH || device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) {
 		dispatch->lid.reliability = evdev_read_switch_reliability_prop(device);
 		dispatch->lid.is_closed = false;
 	}

@@ -696,6 +696,13 @@ enum libinput_switch {
 	 * in tablet mode.
 	 */
 	LIBINPUT_SWITCH_TABLET_MODE,
+
+	/**
+	 * This switch indicates whether the embedded keypad is currently
+	 * opened (if state is @ref LIBINPUT_SWITCH_STATE_ON) or
+	 * closed (if state is @ref LIBINPUT_SWITCH_STATE_OFF).
+	*/
+	LIBINPUT_SWITCH_KEYPAD_SLIDE,
 };
 
 /**
