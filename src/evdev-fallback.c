@@ -1190,13 +1190,14 @@ fallback_interface_sync_initial_state(struct evdev_device *device,
 
 	if (device->tags & EVDEV_TAG_LID_SWITCH || device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) {
 		struct libevdev *evdev = device->evdev;
+		bool is_keypad_slide = (device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH);
 
 		dispatch->lid.is_closed = libevdev_get_event_value(evdev,
 								   EV_SW,
-								   (device->tags & EVDEV_TAG_KEYPAD_SLIDE_SWITCH) ?
+								   is_keypad_slide ?
 								       SW_KEYPAD_SLIDE :
 								       SW_LID);
-		dispatch->lid.is_closed_client_state = false;
+		dispatch->lid.is_closed_client_state = is_keypad_slide;
 
 		/* For the initial state sync, we depend on whether the lid switch
 		 * is reliable. If we know it's reliable, we sync as expected.
@@ -1205,7 +1206,7 @@ fallback_interface_sync_initial_state(struct evdev_device *device,
 		 * that always have the switch in 'on' state thus don't mess up our
 		 * touchpad.
 		 */
-		if (dispatch->lid.is_closed &&
+		if ((is_keypad_slide ? !dispatch->lid.is_closed : dispatch->lid.is_closed) &&
 		    dispatch->lid.reliability == RELIABILITY_RELIABLE) {
 			fallback_lid_notify_toggle(dispatch, device, time);
 		}
