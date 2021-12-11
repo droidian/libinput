@@ -37,6 +37,7 @@
 
 #include "check-double-macros.h"
 
+#include "libinput-private-config.h"
 #include "libinput-util.h"
 #include "quirks.h"
 
@@ -77,6 +78,16 @@ struct test_collection {
 		#name, name##_setup \
 	}; \
 	static void (name##_setup)(void)
+
+
+/**
+ * litest itself needs the user_data to store some test-suite-specific
+ * information. Tests must not override this pointer, any data they need
+ * they can hang off the private pointer in this struct.
+ */
+struct litest_user_data {
+	void *private;
+};
 
 void
 litest_fail_condition(const char *file,
@@ -306,6 +317,9 @@ enum litest_device_type {
 	LITEST_TABLET_MODE_UNRELIABLE,
 	LITEST_KEYBOARD_LOGITECH_MEDIA_KEYBOARD_ELITE,
 	LITEST_SONY_VAIO_KEYS,
+	LITEST_KEYBOARD_QUIRKED,
+	LITEST_SYNAPTICS_PRESSUREPAD,
+	LITEST_GENERIC_PRESSUREPAD,
 };
 
 #define LITEST_DEVICELESS	-2
@@ -427,20 +441,20 @@ void litest_disable_log_handler(struct libinput *libinput);
 void litest_restore_log_handler(struct libinput *libinput);
 void litest_set_log_handler_bug(struct libinput *libinput);
 
-#define litest_add(name_, func_, ...) \
-	_litest_add(name_, #func_, func_, __VA_ARGS__)
-#define litest_add_ranged(name_, func_, ...) \
-	_litest_add_ranged(name_, #func_, func_, __VA_ARGS__)
-#define litest_add_for_device(name_, func_, ...) \
-	_litest_add_for_device(name_, #func_, func_, __VA_ARGS__)
-#define litest_add_ranged_for_device(name_, func_, ...) \
-	_litest_add_ranged_for_device(name_, #func_, func_, __VA_ARGS__)
-#define litest_add_no_device(name_, func_) \
-	_litest_add_no_device(name_, #func_, func_)
-#define litest_add_ranged_no_device(name_, func_, ...) \
-	_litest_add_ranged_no_device(name_, #func_, func_, __VA_ARGS__)
-#define litest_add_deviceless(name_, func_) \
-	_litest_add_deviceless(name_, #func_, func_)
+#define litest_add(func_, ...) \
+	_litest_add(__FILE__, #func_, func_, __VA_ARGS__)
+#define litest_add_ranged(func_, ...) \
+	_litest_add_ranged(__FILE__, #func_, func_, __VA_ARGS__)
+#define litest_add_for_device(func_, ...) \
+	_litest_add_for_device(__FILE__, #func_, func_, __VA_ARGS__)
+#define litest_add_ranged_for_device(func_, ...) \
+	_litest_add_ranged_for_device(__FILE__, #func_, func_, __VA_ARGS__)
+#define litest_add_no_device(func_) \
+	_litest_add_no_device(__FILE__, #func_, func_)
+#define litest_add_ranged_no_device(func_, ...) \
+	_litest_add_ranged_no_device(__FILE__, #func_, func_, __VA_ARGS__)
+#define litest_add_deviceless(func_) \
+	_litest_add_deviceless(__FILE__, #func_, func_)
 
 void
 _litest_add(const char *name,
@@ -604,6 +618,10 @@ litest_touch_move_three_touches(struct litest_device *d,
 				int steps);
 
 void
+litest_tablet_set_tool_type(struct litest_device *d,
+			    unsigned int code);
+
+void
 litest_tablet_proximity_in(struct litest_device *d,
 			   int x, int y,
 			   struct axis_replacement *axes);
@@ -729,8 +747,12 @@ litest_is_button_event(struct libinput_event *event,
 
 struct libinput_event_pointer *
 litest_is_axis_event(struct libinput_event *event,
+		     enum libinput_event_type axis_type,
 		     enum libinput_pointer_axis axis,
 		     enum libinput_pointer_axis_source source);
+
+bool
+litest_is_high_res_axis_event(struct libinput_event *event);
 
 struct libinput_event_pointer *
 litest_is_motion_event(struct libinput_event *event);
@@ -779,6 +801,13 @@ struct libinput_event_tablet_tool *
 litest_is_proximity_event(struct libinput_event *event,
 			  enum libinput_tablet_tool_proximity_state state);
 
+double
+litest_event_pointer_get_value(struct libinput_event_pointer *ptrev,
+			       enum libinput_pointer_axis axis);
+
+enum libinput_pointer_axis_source
+litest_event_pointer_get_axis_source(struct libinput_event_pointer *event);
+
 void
 litest_assert_key_event(struct libinput *li, unsigned int key,
 			enum libinput_key_state state);
@@ -790,12 +819,23 @@ litest_assert_button_event(struct libinput *li,
 
 void
 litest_assert_scroll(struct libinput *li,
+		     enum libinput_event_type axis_type,
 		     enum libinput_pointer_axis axis,
 		     int minimum_movement);
 
 void
+litest_assert_axis_end_sequence(struct libinput *li,
+				enum libinput_event_type axis_type,
+				enum libinput_pointer_axis axis,
+				enum libinput_pointer_axis_source source);
+
+void
 litest_assert_only_typed_events(struct libinput *li,
 				enum libinput_event_type type);
+
+void
+litest_assert_only_axis_events(struct libinput *li,
+			       enum libinput_event_type axis_type);
 
 void
 litest_assert_no_typed_events(struct libinput *li,
@@ -822,6 +862,12 @@ void
 litest_assert_pad_key_event(struct libinput *li,
 			    unsigned int key,
 			    enum libinput_key_state state);
+
+void
+litest_assert_gesture_event(struct libinput *li,
+			    enum libinput_event_type type,
+			    int nfingers);
+
 struct libevdev_uinput *
 litest_create_uinput_device(const char *name,
 			    struct input_id *id,
@@ -868,6 +914,12 @@ litest_timeout_gesture(void);
 
 void
 litest_timeout_gesture_scroll(void);
+
+void
+litest_timeout_gesture_hold(void);
+
+void
+litest_timeout_gesture_quick_hold(void);
 
 void
 litest_timeout_trackpoint(void);
@@ -1136,6 +1188,30 @@ litest_sendevents_ext_mouse(struct litest_device *dev)
 	expected = LIBINPUT_CONFIG_STATUS_SUCCESS;
 	status = libinput_device_config_send_events_set_mode(device,
 				    LIBINPUT_CONFIG_SEND_EVENTS_DISABLED_ON_EXTERNAL_MOUSE);
+	litest_assert_int_eq(status, expected);
+}
+
+static inline void
+litest_enable_hold_gestures(struct libinput_device *device)
+{
+	enum libinput_config_status status, expected;
+
+	expected = LIBINPUT_CONFIG_STATUS_SUCCESS;
+	status = libinput_device_config_gesture_set_hold_enabled(device,
+								 LIBINPUT_CONFIG_HOLD_ENABLED);
+
+	litest_assert_int_eq(status, expected);
+}
+
+static inline void
+litest_disable_hold_gestures(struct libinput_device *device)
+{
+	enum libinput_config_status status, expected;
+
+	expected = LIBINPUT_CONFIG_STATUS_SUCCESS;
+	status = libinput_device_config_gesture_set_hold_enabled(device,
+								 LIBINPUT_CONFIG_HOLD_DISABLED);
+
 	litest_assert_int_eq(status, expected);
 }
 

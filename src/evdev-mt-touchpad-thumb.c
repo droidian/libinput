@@ -358,8 +358,9 @@ tp_thumb_update_multifinger(struct tp_dispatch *tp)
 	 * the behavior of the other touches.)
 	 */
 
-	if ((newest->initial_time - oldest->initial_time) < THUMB_TIMEOUT &&
-         first->point.y < tp->thumb.lower_thumb_line) {
+	if (newest &&
+	    (newest->initial_time - oldest->initial_time) < THUMB_TIMEOUT &&
+	    first->point.y < tp->thumb.lower_thumb_line) {
 		tp_thumb_lift(tp);
 		return;
 	}
@@ -445,4 +446,20 @@ tp_init_thumb(struct tp_dispatch *tp)
 			"thumb: enabled thumb detection (area%s%s)\n",
 			tp->thumb.use_pressure ? ", pressure" : "",
 			tp->thumb.use_size ? ", size" : "");
+}
+
+struct tp_touch*
+tp_thumb_get_touch(struct tp_dispatch *tp)
+{
+	struct tp_touch *thumb;
+
+	if (tp->thumb.index == UINT_MAX)
+		return NULL;
+
+	tp_for_each_touch(tp, thumb) {
+		if (thumb->index == tp->thumb.index)
+			return thumb;
+	}
+
+	return NULL;
 }

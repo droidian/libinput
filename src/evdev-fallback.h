@@ -96,7 +96,14 @@ struct fallback_dispatch {
 	} mt;
 
 	struct device_coords rel;
-	struct device_coords wheel;
+
+	struct {
+		struct device_coords lo_res;
+		struct device_coords hi_res;
+		bool emulate_hi_res_wheel;
+		bool is_inhibited;
+		bool hi_res_event_received;
+	} wheel;
 
 	struct {
 		/* The struct for the tablet mode switch device itself */
@@ -241,5 +248,11 @@ get_key_down_count(struct evdev_device *device, int code)
 void fallback_init_debounce(struct fallback_dispatch *dispatch);
 void fallback_debounce_handle_state(struct fallback_dispatch *dispatch,
 				    uint64_t time);
+void
+fallback_notify_physical_button(struct fallback_dispatch *dispatch,
+				struct evdev_device *device,
+				uint64_t time,
+				int button,
+				enum libinput_button_state state);
 
 #endif

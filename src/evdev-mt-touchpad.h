@@ -106,17 +106,31 @@ enum tp_tap_state {
 	TAP_STATE_IDLE = 4,
 	TAP_STATE_TOUCH,
 	TAP_STATE_HOLD,
-	TAP_STATE_TAPPED,
+	TAP_STATE_1FGTAP_TAPPED,
+	TAP_STATE_2FGTAP_TAPPED,
+	TAP_STATE_3FGTAP_TAPPED,
 	TAP_STATE_TOUCH_2,
 	TAP_STATE_TOUCH_2_HOLD,
 	TAP_STATE_TOUCH_2_RELEASE,
 	TAP_STATE_TOUCH_3,
 	TAP_STATE_TOUCH_3_HOLD,
-	TAP_STATE_DRAGGING_OR_DOUBLETAP,
-	TAP_STATE_DRAGGING_OR_TAP,
-	TAP_STATE_DRAGGING,
-	TAP_STATE_DRAGGING_WAIT,
-	TAP_STATE_DRAGGING_2,
+	TAP_STATE_TOUCH_3_RELEASE,
+	TAP_STATE_TOUCH_3_RELEASE_2,
+	TAP_STATE_1FGTAP_DRAGGING_OR_DOUBLETAP,
+	TAP_STATE_2FGTAP_DRAGGING_OR_DOUBLETAP,
+	TAP_STATE_3FGTAP_DRAGGING_OR_DOUBLETAP,
+	TAP_STATE_1FGTAP_DRAGGING_OR_TAP,
+	TAP_STATE_2FGTAP_DRAGGING_OR_TAP,
+	TAP_STATE_3FGTAP_DRAGGING_OR_TAP,
+	TAP_STATE_1FGTAP_DRAGGING,
+	TAP_STATE_2FGTAP_DRAGGING,
+	TAP_STATE_3FGTAP_DRAGGING,
+	TAP_STATE_1FGTAP_DRAGGING_WAIT,
+	TAP_STATE_2FGTAP_DRAGGING_WAIT,
+	TAP_STATE_3FGTAP_DRAGGING_WAIT,
+	TAP_STATE_1FGTAP_DRAGGING_2,
+	TAP_STATE_2FGTAP_DRAGGING_2,
+	TAP_STATE_3FGTAP_DRAGGING_2,
 	TAP_STATE_DEAD, /**< finger count exceeded */
 };
 
@@ -143,6 +157,9 @@ enum tp_edge_scroll_touch_state {
 enum tp_gesture_state {
 	GESTURE_STATE_NONE,
 	GESTURE_STATE_UNKNOWN,
+	GESTURE_STATE_HOLD,
+	GESTURE_STATE_HOLD_AND_MOTION,
+	GESTURE_STATE_POINTER_MOTION,
 	GESTURE_STATE_SCROLL,
 	GESTURE_STATE_PINCH,
 	GESTURE_STATE_SWIPE,
@@ -171,7 +188,6 @@ struct tp_touch {
 	bool has_ended;				/* TRACKING_ID == -1 */
 	bool dirty;
 	struct device_coords point;
-	uint64_t time;
 	uint64_t initial_time;
 	int pressure;
 	bool is_tool_palm; /* MT_TOOL_PALM */
@@ -332,6 +348,7 @@ struct tp_dispatch {
 	} accel;
 
 	struct {
+		struct libinput_device_config_gesture config;
 		bool enabled;
 		bool started;
 		unsigned int finger_count;
@@ -344,6 +361,8 @@ struct tp_dispatch {
 		double prev_scale;
 		double angle;
 		struct device_float_coords center;
+		struct libinput_timer hold_timer;
+		bool hold_enabled;
 	} gesture;
 
 	struct {
@@ -640,7 +659,7 @@ tp_button_is_inside_softbutton_area(const struct tp_dispatch *tp,
 
 void
 tp_release_all_taps(struct tp_dispatch *tp,
-		    uint64_t time);
+		    uint64_t now);
 
 void
 tp_tap_suspend(struct tp_dispatch *tp, uint64_t time);
@@ -650,6 +669,9 @@ tp_tap_resume(struct tp_dispatch *tp, uint64_t time);
 
 bool
 tp_tap_dragging(const struct tp_dispatch *tp);
+
+bool
+tp_tap_dragging_or_double_tapping(const struct tp_dispatch *tp);
 
 void
 tp_edge_scroll_init(struct tp_dispatch *tp, struct evdev_device *device);
@@ -686,13 +708,20 @@ void
 tp_gesture_cancel(struct tp_dispatch *tp, uint64_t time);
 
 void
+tp_gesture_cancel_motion_gestures(struct tp_dispatch *tp, uint64_t time);
+
+void
 tp_gesture_handle_state(struct tp_dispatch *tp, uint64_t time);
 
 void
-tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time);
+tp_gesture_post_events(struct tp_dispatch *tp, uint64_t time,
+		       bool ignore_motion);
 
 void
 tp_gesture_stop_twofinger_scroll(struct tp_dispatch *tp, uint64_t time);
+
+void
+tp_gesture_tap_timeout(struct tp_dispatch *tp, uint64_t time);
 
 bool
 tp_palm_tap_is_palm(const struct tp_dispatch *tp, const struct tp_touch *t);
@@ -729,5 +758,8 @@ tp_thumb_update_multifinger(struct tp_dispatch *tp);
 
 void
 tp_init_thumb(struct tp_dispatch *tp);
+
+struct tp_touch*
+tp_thumb_get_touch(struct tp_dispatch *tp);
 
 #endif

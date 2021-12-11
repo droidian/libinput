@@ -28,7 +28,7 @@ behaviour is not tolerated by the project.
 Contact
 ------------------------------------------------------------------------------
 
-Questions can be asked on ``#wayland-devel`` on freenode or on the
+Questions can be asked on ``#wayland`` on oftc or on the
 `wayland-devel@lists.freedesktop.org
 <https://lists.freedesktop.org/mailman/listinfo/wayland-devel>`_ mailing
 list.
@@ -50,7 +50,7 @@ If you don't already know what you want to improve or fix with libinput,
 then a good way of finding something is to search for the ``help needed``
 tag in our `issue tracker <https://gitlab.freedesktop.org/libinput/libinput/issues?label_name%5B%5D=help+needed>`_.
 These are issues that have been triaged to some degree and deemed to be a
-possible future feature to libinput. 
+possible future feature to libinput.
 
 .. note:: Some of these issue may require specific hardware to reproduce.
 
@@ -79,11 +79,11 @@ You can omit the last step if you only want to test locally.
 Working on the code
 ------------------------------------------------------------------------------
 
-libinput has a roughly three-parts architecture: 
+libinput has a roughly three-parts architecture:
 
 -  the front-end code which handles the ``libinput_some_function()`` API calls in ``libinput.c``
 -  the generic evdev interface handling which maps those API calls to the
-   backend calls (``evdev.c``). 
+   backend calls (``evdev.c``).
 - there are device-specific backends which do most of the actual work -
   ``evdev-mt-touchpad.c`` is the one for touchpads for example.
 
@@ -140,6 +140,8 @@ run by the CI on merge requests, you can run those locally with ::
 So it always pays to run that before submitting. This will also run the code
 through valgrind and pick up any memory leaks.
 
+.. _contributing_submitting_code:
+
 ------------------------------------------------------------------------------
 Submitting Code
 ------------------------------------------------------------------------------
@@ -149,32 +151,75 @@ Any patches should be sent via a Merge Request (see the `GitLab docs
 in the `libinput GitLab instance hosted by freedesktop.org
 <https://gitlab.freedesktop.org/libinput/libinput>`_.
 
-To submit a merge request, you need to
+Below are the steps required to submit a merge request. They do not
+replace `learning git <https://git-scm.com/doc>`__ but they should be
+sufficient to make some of the more confusing steps obvious.
 
 - `Register an account <https://gitlab.freedesktop.org/users/sign_in>`_ in
   the freedesktop.org GitLab instance.
 - `Fork libinput <https://gitlab.freedesktop.org/libinput/libinput/forks/new>`_
   into your username's namespace
-- Get libinput's main repository: ::
+- Get libinput's main repository. git will call this repository ``origin``. ::
 
     git clone https://gitlab.freedesktop.org/libinput/libinput.git
 
 - Add the forked git repository to your remotes (replace ``USERNAME``
-  with your username): ::
+  with your username). git will call this repository ``gitlab``. ::
 
     cd /path/to/libinput.git
     git remote add gitlab git@gitlab.freedesktop.org:USERNAME/libinput.git
     git fetch gitlab
 
-- Push your changes to your fork: ::
+- Create a new branch and commit your changes to that branch. ::
 
-    git push gitlab BRANCHNAME
+    git switch -C mynewbranch
+    # edit files, make changes
+    git add file1 file2
+    git commit -s
+    # edit commit message in the editor
 
-- Submit a merge request. The URL for a merge request is: ::
+  Replace ``mynewbranch`` (here and in the commands below) with a meaningful
+  name. See :ref:`contributing_commit_messages` for details on the commit
+  message format.
+
+- Push your changes to your fork and submit a merge request ::
+
+    git push gitlab mynewbranch
+
+  This command will print the URL to file a merge request, you then only
+  have to click through. Alternatively you can go to:
 
     https://gitlab.freedesktop.org/USERNAME/libinput/merge_requests
 
-  Select your branch name to merge and ``libinput/libinput`` ``master`` as target branch.
+  Select your branch name to merge and ``libinput/libinput`` ``main`` as target branch.
+
+- Verify that the CI completes successfully by visiting the merge request
+  page. A successful pipeline shows only green ticks, failure is indicated
+  by a red cross or a yellow exclamation mark (see
+  the `GitLab Docs
+  <https://docs.gitlab.com/ee/ci/pipelines/#pipeline-mini-graphs>`__). For
+  details about the failures, click on the failed jobs in the pipelines
+  and/or click the ``Expand`` button in the box for the test summaries.
+
+  A merge request without a successful pipeline may never be looked at by a
+  maintainer.
+
+- If changes are requested by the maintainers, please **amend** the
+  commit(s) and **force-push** the updated branch. ::
+
+    # edits in file foo.c
+    git add foo.c
+    git commit --amend
+    git push -f gitlab mynewbranch
+
+  A force-push will re-trigger the CI and notify the merge request that new
+  changes are available.
+
+  If the branch contains more than one commit, please look at
+  `git interactive rebases
+  <https://git-scm.com/book/en/v2/Git-Tools-Rewriting-History>`__
+  to learn how to change multiple commits, or squash new changes into older
+  commits.
 
 ------------------------------------------------------------------------------
 Commit History
@@ -215,6 +260,8 @@ describes the change. For example: ::
 If in doubt what prefix to use, look at other commits that change the
 same file(s) as the patch being sent.
 
+.. _contributing_commit_messages:
+
 ------------------------------------------------------------------------------
 Commit Messages
 ------------------------------------------------------------------------------
@@ -254,7 +301,7 @@ Coding Style
 ------------------------------------------------------------------------------
 
 Please see the `CODING_STYLE.md
-<https://gitlab.freedesktop.org/libinput/libinput/blob/master/CODING_STYLE.md>`_
+<https://gitlab.freedesktop.org/libinput/libinput/blob/main/CODING_STYLE.md>`_
 document in the source tree.
 
 ------------------------------------------------------------------------------
@@ -293,3 +340,96 @@ web interface though, so we do recommend using this to go through the review
 process, even if you use other clients to track the list of available
 patches.
 
+------------------------------------------------------------------------------
+Failed pipeline errors
+------------------------------------------------------------------------------
+
+After submitting your merge request to GitLab, you might receive an email
+informing you that your pipeline failed.
+
+Visit your merge request page and check the `pipeline mini graph
+<https://docs.gitlab.com/ee/ci/pipelines/#pipeline-mini-graphs>`_ to know which
+step failed.
+
+Follow the appropriate section to fix the errors.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Missing "Signed-off-by: author information"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As explained in :ref:`contributing_commit_messages`, every commit must contain a
+Signed-off-by line with your name and email address.
+
+When this line is not present, it can be added to your commit afterwards: ::
+
+  git commit --amend -s
+
+If the merge request contains more than one commit, it must be added to all of
+them: ::
+
+  git rebase --interactive --exec 'git commit --amend -s' main
+
+Once the problem is fixed, force-push your branch. See
+:ref:`contributing_submitting_code` for more details about how to push your code
+and interactive rebases.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Committed gitlab-ci.yml differs from generated gitlab-ci.yml. Please verify
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When your merge request modifies the CI templates, you might see this error
+mainly due two reasons: the wrong file was modified and/or
+``ci-fairy generate-template`` wasn't run.
+
+``.gitlab-ci.yaml`` is auto generated, changes should be made in:
+
+- ``.gitlab-ci/ci.template``
+
+- ``.gitlab-ci/config.yaml``
+
+Once the changes are ready, run
+`ci-fairy <https://freedesktop.pages.freedesktop.org/ci-templates/ci-fairy.html#templating-gitlab-ci-yml>`_
+to update ``.gitlab-ci.yaml``: ::
+
+  ci-fairy generate-template
+
+Finally, force-push you changes. See :ref:`contributing_submitting_code` for
+more details.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Build errors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Usually, checking the CI log is enough to catch this errors. However, your merge
+request is built using different configurations you might have not tested.
+
+In order to fix this kind of problems, you can compile libinput using the same
+flags used by the CI.
+
+For example, if an error is found in the ``build-no-libwacom`` step, open the
+log and search the build options: ::
+
+  [...]
+  + rm -rf 'build dir'
+  + meson 'build dir' -Dlibwacom=false
+  The Meson build system
+  [...]
+
+Use the same flags to fix the issue and force-push you changes. See
+:ref:`contributing_submitting_code` for more details.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Test errors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The test suite is run for your merge request to check for bugs, regressions and
+memory leaks among other issues.
+
+Open the CI error log and search for a message similar to: ::
+
+  :: Failure: ../test/test-touchpad.c:465: touchpad_2fg_scroll_slow_distance(synaptics-t440)
+
+See :ref:`test-suite` to learn how to run the failing tests.
+
+Once the tests are fixed, force-push you changes. See
+:ref:`contributing_submitting_code` for more details.

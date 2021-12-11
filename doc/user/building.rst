@@ -16,6 +16,29 @@ The build instruction on this page detail how to overwrite your
 system-provided libinput with one from the git repository, see
 see :ref:`reverting_install` to revert to the previous state.
 
+.. _distribution_repos:
+
+------------------------------------------------------------------------------
+Distribution repositories for libinput from git
+------------------------------------------------------------------------------
+
+Some distributions provide package repositories for users that want to test
+the latest libinput without building it manually.
+
+.. note:: The list below is provided for convenience. The libinput community
+   cannot provide any guarantees that the packages in those repositories are
+   correct, up-to-date and/or unmodified from the git branch. Due dilligence
+   is recommended.
+
+The following repositories provide an up-to-date package for libinput:
+
+- **Arch:** https://aur.archlinux.org/packages/libinput-git/
+- **Fedora:** https://copr.fedorainfracloud.org/coprs/whot/libinput-git/
+
+Please follow the respective repositories for instructions on how to enable
+the repository and install libinput.
+
+
 .. _building:
 
 ------------------------------------------------------------------------------
@@ -87,12 +110,10 @@ the library path and that all symlinks point to the new library.
 
 ::
 
-     $> ls -l /usr/lib64/libinput.*
-     -rwxr-xr-x 1 root root    946 Apr 28  2015 /usr/lib64/libinput.la
-     lrwxrwxrwx 1 root root     19 Feb  1 15:12 /usr/lib64/libinput.so -> libinput.so.10.13.0
-     lrwxrwxrwx 1 root root     19 Feb  1 15:12 /usr/lib64/libinput.so.10 -> libinput.so.10.13.0
-     -rwxr-xr-x 1 root root 204992 Feb  1 15:12 /usr/lib64/libinput.so.10.13.0
-
+     $> ldconfig -p | grep libinput | awk '{print $NF}' | xargs ls -l
+     lrwxrwxrwx 1 root root      14 lug 22 13:06 /usr/lib/x86_64-linux-gnu/libinput.so -> libinput.so.10
+     lrwxrwxrwx 1 root root      19 lug 22 13:06 /usr/lib/x86_64-linux-gnu/libinput.so.10 -> libinput.so.10.13.0
+     -rwxr-xr-x 1 root root 1064144 lug 22 13:06 /usr/lib/x86_64-linux-gnu/libinput.so.10.13.0
 
 .. _reverting_install:
 
@@ -167,7 +188,7 @@ libinput has a few build-time dependencies that must be installed prior to
 running meson.
 
 .. hint:: The build dependencies for some distributions can be found in the
-	`GitLab Continuous Integration file <https://gitlab.freedesktop.org/libinput/libinput/blob/master/.gitlab-ci.yml>`_.
+	`GitLab Continuous Integration file <https://gitlab.freedesktop.org/libinput/libinput/blob/main/.gitlab-ci.yml>`_.
 	Search for **FEDORA_RPMS** in the **variables:** definition
 	and check the list for an entry for your distribution.
 
@@ -200,6 +221,14 @@ If dependencies are missing, meson shows a message ``No package 'foo'
 found``.  See
 `this blog post here <https://who-t.blogspot.com/2018/07/meson-fails-with-native-dependency-not-found.html>`_
 for instructions on how to fix it.
+
+..............................................................................
+Build dependencies per distribution
+..............................................................................
+
+
+.. include:: dependencies.rst
+
 
 .. _building_conditional:
 
@@ -252,6 +281,11 @@ Software that uses meson should use the ``dependency()`` function: ::
 
     pkgconfig = import('pkgconfig')
     dep_libinput = dependency('libinput')
+
+Software that uses CMake should use: ::
+
+    find_package(Libinput)
+    target_link_libraries(myprogram PRIVATE Libinput::Libinput)
 
 Otherwise, the most rudimentary way to compile and link a program against
 libinput is:

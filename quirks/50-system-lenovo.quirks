@@ -26,30 +26,41 @@ MatchName=Synaptics tm2964-001
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT440p*
 ModelLenovoT450Touchpad=1
 
+[Lenovo T470 Trackpoint]
+MatchName=*TPPS/2 IBM TrackPoint
+MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT470:*
+AttrTrackpointMultiplier=0.4
+
 [Lenovo T480 Trackpoint]
 MatchName=*TPPS/2 IBM TrackPoint
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT480:*
 AttrTrackpointMultiplier=0.4
 
+# Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
+# https://gitlab.freedesktop.org/libinput/libinput/issues/177
 [Lenovo T480s Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT480s*
-ModelLenovoT480sTouchpad=1
+AttrInputPropEnable=INPUT_PROP_BUTTONPAD
 
+# Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
+# https://gitlab.freedesktop.org/libinput/libinput/issues/177
 [Lenovo T490s Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT490s*
-ModelLenovoT490sTouchpad=1
+AttrInputPropEnable=INPUT_PROP_BUTTONPAD
 
 [Lenovo T490s Trackpoint]
 MatchName=*TPPS/2 IBM TrackPoint
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT490s:*
 AttrTrackpointMultiplier=0.4
 
+# Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
+# https://gitlab.freedesktop.org/libinput/libinput/issues/234
 [Lenovo L380 Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadL380*
-ModelLenovoL380Touchpad=1
+AttrInputPropEnable=INPUT_PROP_BUTTONPAD
 
 [Lenovo X200 Trackpoint]
 MatchName=*TPPS/2 IBM TrackPoint
@@ -130,6 +141,20 @@ MatchName=*TPPS/2 IBM TrackPoint
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadX1Yoga1st:*
 AttrTrackpointMultiplier=1.25
 
+# A true pressurepad so let's not use pressure for contact size
+# https://gitlab.freedesktop.org/libinput/libinput/-/issues/562
+[Lenovo Yoga 9i Pressurepad]
+MatchBus=i2c
+MatchVendor=0x06CB
+MatchProduct=0xCE37
+AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+
+[Lenovo Yoga C930 Tablet]
+MatchBus=i2c
+MatchVendor=0x056A
+MatchProduct=0x5196
+AttrTabletSmoothing=1
+
 # Lenovo Carbon X1 6th gen (RMI4 only, PS/2 is broken on this device,
 # sends bogus ABS_MT_TOOL_TYPE events for MT_TOOL_PALM
 [Lenovo Carbon X1 6th gen]
@@ -146,6 +171,11 @@ ModelTabletModeNoSuspend=1
 [Lenovo X60 Tablet]
 MatchName=AT Translated Set 2 keyboard
 MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX60Tablet:*
+ModelTabletModeNoSuspend=1
+
+[Lenovo X61 Tablet]
+MatchName=AT Translated Set 2 keyboard
+MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX61Tablet:*
 ModelTabletModeNoSuspend=1
 
 # Lenovo X220 Tablet special bezel buttons are associated to the
@@ -191,3 +221,54 @@ ModelTabletModeNoSuspend=1
 MatchName=AT Raw Set 2 keyboard
 MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX1Tablet:*
 ModelTabletModeNoSuspend=1
+
+# Misidentified as an external keyboard by libinput
+# Tested on Legion 5 15AR05H
+[Lenovo Legion 5 Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC100
+AttrKeyboardIntegration=internal
+
+[Lenovo Legion 5 Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC955
+AttrKeyboardIntegration=internal
+
+# Tested on Lenovo Legion 5 Pro 16ACH6H
+[Lenovo Legion 5 Pro Keyboard]
+MatchUdevType=keyboard
+MatchBus=usb
+MatchVendor=0x048D
+MatchProduct=0xC101
+AttrKeyboardIntegration=internal
+
+# https://gitlab.freedesktop.org/libinput/libinput/-/issues/604
+[Lenovo Yoga Slim 9 14ITL5 Pressurepad]
+MatchBus=i2c
+MatchVendor=0x27C6
+MatchProduct=0x01E8
+AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+
+# Duet 7i tablet switch activated by folding keyboard cover, or removing it.
+# We must not disable volume rocker 'keyboard'.
+[Lenovo Duet 7i]
+MatchName=AT Raw Set 2 keyboard
+MatchDMIModalias=dmi:*svnLENOVO:*pvrYogaDuet713IML05:*
+ModelTabletModeNoSuspend=1
+
+# https://gitlab.freedesktop.org/libinput/libinput/-/issues/651
+[Lenovo TrackPoint Keyboard II USB]
+MatchBus=usb
+MatchVendor=0x17EF
+MatchProduct=0x60EE
+ModelLenovoTrackpointKeyboard2=1
+
+[Lenovo TrackPoint Keyboard II Bluetooth]
+MatchBus=bluetooth
+MatchVendor=0x17EF
+MatchProduct=0x60E1
+ModelLenovoTrackpointKeyboard2=1

@@ -48,7 +48,7 @@ libinput_timer_init(struct libinput_timer *timer,
 void
 libinput_timer_destroy(struct libinput_timer *timer)
 {
-	if (timer->link.prev != NULL && timer->link.prev != NULL &&
+	if (timer->link.prev != NULL && timer->link.next != NULL &&
 	    !list_empty(&timer->link)) {
 		log_bug_libinput(timer->libinput,
 				 "timer: %s has not been cancelled\n",
@@ -136,7 +136,7 @@ libinput_timer_handler(struct libinput *libinput , uint64_t now)
 	struct libinput_timer *timer;
 
 restart:
-	list_for_each(timer, &libinput->timer.list, link) {
+	list_for_each_safe(timer, &libinput->timer.list, link) {
 		if (timer->expire == 0)
 			continue;
 

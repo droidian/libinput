@@ -494,7 +494,7 @@ START_TEST(path_device_sysname)
 	ck_assert_notnull(sysname);
 	ck_assert_int_gt(strlen(sysname), 1);
 	ck_assert(strchr(sysname, '/') == NULL);
-	ck_assert_int_eq(strncmp(sysname, "event", 5), 0);
+	ck_assert(strneq(sysname, "event", 5));
 
 	libinput_event_destroy(ev);
 }
@@ -904,6 +904,42 @@ START_TEST(path_add_device_suspend_resume_remove_device)
 }
 END_TEST
 
+START_TEST(path_device_gone)
+{
+	struct libinput *li;
+	struct libinput_device *device;
+	struct libevdev_uinput *uinput;
+	struct libinput_event *event;
+
+	uinput = litest_create_uinput_device("test device", NULL,
+					     EV_KEY, BTN_LEFT,
+					     EV_KEY, BTN_RIGHT,
+					     EV_REL, REL_X,
+					     EV_REL, REL_Y,
+					     -1);
+
+	li = libinput_path_create_context(&simple_interface, NULL);
+	ck_assert_notnull(li);
+
+	device = libinput_path_add_device(li,
+					  libevdev_uinput_get_devnode(uinput));
+	ck_assert_notnull(device);
+
+	litest_drain_events(li);
+
+	libevdev_uinput_destroy(uinput);
+
+	libinput_dispatch(li);
+
+	event = libinput_get_event(li);
+	ck_assert_notnull(event);
+	litest_assert_event_type(event, LIBINPUT_EVENT_DEVICE_REMOVED);
+	libinput_event_destroy(event);
+
+	libinput_unref(li);
+}
+END_TEST
+
 START_TEST(path_seat_recycle)
 {
 	struct libinput *li;
@@ -1014,30 +1050,31 @@ END_TEST
 
 TEST_COLLECTION(path)
 {
-	litest_add_no_device("path:create", path_create_NULL);
-	litest_add_no_device("path:create", path_create_invalid);
-	litest_add_no_device("path:create", path_create_invalid_file);
-	litest_add_no_device("path:create", path_create_invalid_kerneldev);
-	litest_add_no_device("path:create", path_create_pathmax_file);
-	litest_add_no_device("path:create", path_create_destroy);
-	litest_add("path:create", path_force_destroy, LITEST_ANY, LITEST_ANY);
-	litest_add_no_device("path:create", path_set_user_data);
-	litest_add_no_device("path:suspend", path_suspend);
-	litest_add_no_device("path:suspend", path_double_suspend);
-	litest_add_no_device("path:suspend", path_double_resume);
-	litest_add_no_device("path:suspend", path_add_device_suspend_resume);
-	litest_add_no_device("path:suspend", path_add_device_suspend_resume_fail);
-	litest_add_no_device("path:suspend", path_add_device_suspend_resume_remove_device);
-	litest_add_for_device("path:seat", path_added_seat, LITEST_SYNAPTICS_CLICKPAD_X220);
-	litest_add_for_device("path:seat", path_seat_change, LITEST_SYNAPTICS_CLICKPAD_X220);
-	litest_add("path:device events", path_added_device, LITEST_ANY, LITEST_ANY);
-	litest_add("path:device events", path_device_sysname, LITEST_ANY, LITEST_ANY);
-	litest_add_for_device("path:device events", path_add_device, LITEST_SYNAPTICS_CLICKPAD_X220);
-	litest_add_no_device("path:device events", path_add_invalid_path);
-	litest_add_for_device("path:device events", path_remove_device, LITEST_SYNAPTICS_CLICKPAD_X220);
-	litest_add_for_device("path:device events", path_double_remove_device, LITEST_SYNAPTICS_CLICKPAD_X220);
-	litest_add_no_device("path:seat", path_seat_recycle);
-	litest_add_for_device("path:udev", path_udev_assign_seat, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add_no_device(path_create_NULL);
+	litest_add_no_device(path_create_invalid);
+	litest_add_no_device(path_create_invalid_file);
+	litest_add_no_device(path_create_invalid_kerneldev);
+	litest_add_no_device(path_create_pathmax_file);
+	litest_add_no_device(path_create_destroy);
+	litest_add(path_force_destroy, LITEST_ANY, LITEST_ANY);
+	litest_add_no_device(path_set_user_data);
+	litest_add_no_device(path_suspend);
+	litest_add_no_device(path_double_suspend);
+	litest_add_no_device(path_double_resume);
+	litest_add_no_device(path_add_device_suspend_resume);
+	litest_add_no_device(path_add_device_suspend_resume_fail);
+	litest_add_no_device(path_add_device_suspend_resume_remove_device);
+	litest_add_for_device(path_added_seat, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add_for_device(path_seat_change, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add(path_added_device, LITEST_ANY, LITEST_ANY);
+	litest_add(path_device_sysname, LITEST_ANY, LITEST_ANY);
+	litest_add_for_device(path_add_device, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add_no_device(path_add_invalid_path);
+	litest_add_for_device(path_remove_device, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add_for_device(path_double_remove_device, LITEST_SYNAPTICS_CLICKPAD_X220);
+	litest_add_no_device(path_device_gone);
+	litest_add_no_device(path_seat_recycle);
+	litest_add_for_device(path_udev_assign_seat, LITEST_SYNAPTICS_CLICKPAD_X220);
 
-	litest_add_no_device("path:ignore", path_ignore_device);
+	litest_add_no_device(path_ignore_device);
 }

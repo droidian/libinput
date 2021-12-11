@@ -38,6 +38,7 @@
 #include "linux/input.h"
 
 #include "libinput.h"
+#include "libinput-private-config.h"
 #include "libinput-util.h"
 #include "libinput-version.h"
 
@@ -74,6 +75,11 @@ struct normalized_range_coords {
 /* A pair of angles in degrees */
 struct wheel_angle {
 	double x, y;
+};
+
+/* A pair of wheel click data for the 120-normalized range */
+struct wheel_v120 {
+	int x, y;
 };
 
 /* A pair of angles in degrees */
@@ -307,6 +313,13 @@ struct libinput_device_config_rotation {
 	unsigned int (*get_default_angle)(struct libinput_device *device);
 };
 
+struct libinput_device_config_gesture {
+	enum libinput_config_status (*set_hold_enabled)(struct libinput_device *device,
+			 enum libinput_config_hold_state enabled);
+	enum libinput_config_hold_state (*get_hold_enabled)(struct libinput_device *device);
+	enum libinput_config_hold_state (*get_hold_default)(struct libinput_device *device);
+};
+
 struct libinput_device_config {
 	struct libinput_device_config_tap *tap;
 	struct libinput_device_config_calibration *calibration;
@@ -319,6 +332,7 @@ struct libinput_device_config {
 	struct libinput_device_config_middle_emulation *middle_emulation;
 	struct libinput_device_config_dwt *dwt;
 	struct libinput_device_config_rotation *rotation;
+	struct libinput_device_config_gesture *gesture;
 };
 
 struct libinput_device_group {
@@ -378,11 +392,13 @@ struct libinput_tablet_tool {
 	int refcount;
 	void *user_data;
 
-	/* The pressure threshold assumes a pressure_offset of 0 */
-	struct threshold pressure_threshold;
-	/* pressure_offset includes axis->minimum */
-	int pressure_offset;
-	bool has_pressure_offset;
+	struct {
+		/* The pressure threshold assumes a pressure_offset of 0 */
+		struct threshold threshold;
+		/* pressure_offset includes axis->minimum */
+		int offset;
+		bool has_offset;
+	} pressure;
 };
 
 struct libinput_tablet_pad_mode_group {
@@ -557,12 +573,29 @@ pointer_notify_button(struct libinput_device *device,
 		      enum libinput_button_state state);
 
 void
-pointer_notify_axis(struct libinput_device *device,
-		    uint64_t time,
-		    uint32_t axes,
-		    enum libinput_pointer_axis_source source,
-		    const struct normalized_coords *delta,
-		    const struct discrete_coords *discrete);
+pointer_notify_axis_finger(struct libinput_device *device,
+			   uint64_t time,
+			   uint32_t axes,
+			   const struct normalized_coords *delta);
+void
+pointer_notify_axis_continuous(struct libinput_device *device,
+			       uint64_t time,
+			       uint32_t axes,
+			       const struct normalized_coords *delta);
+
+void
+pointer_notify_axis_legacy_wheel(struct libinput_device *device,
+				 uint64_t time,
+				 uint32_t axes,
+				 const struct normalized_coords *delta,
+				 const struct discrete_coords *discrete);
+
+void
+pointer_notify_axis_wheel(struct libinput_device *device,
+			  uint64_t time,
+			  uint32_t axes,
+			  const struct normalized_coords *delta,
+			  const struct wheel_v120 *v120);
 
 void
 touch_notify_touch_down(struct libinput_device *device,
@@ -606,7 +639,7 @@ void
 gesture_notify_swipe_end(struct libinput_device *device,
 			 uint64_t time,
 			 int finger_count,
-			 int cancelled);
+			 bool cancelled);
 
 void
 gesture_notify_pinch(struct libinput_device *device,
@@ -623,7 +656,18 @@ gesture_notify_pinch_end(struct libinput_device *device,
 			 uint64_t time,
 			 int finger_count,
 			 double scale,
-			 int cancelled);
+			 bool cancelled);
+
+void
+gesture_notify_hold(struct libinput_device *device,
+		    uint64_t time,
+		    int finger_count);
+
+void
+gesture_notify_hold_end(struct libinput_device *device,
+			uint64_t time,
+			int finger_count,
+			bool cancelled);
 
 void
 tablet_notify_axis(struct libinput_device *device,

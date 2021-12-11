@@ -65,6 +65,8 @@
 
 #include <linux/kd.h>
 
+#define evbit(t, c) ((t) << 16U | (c & 0xffff))
+
 #define UDEV_RULES_D "/run/udev/rules.d"
 #define UDEV_FUZZ_OVERRIDE_RULE_FILE UDEV_RULES_D \
 	"/91-litest-fuzz-override-REMOVEME-XXXXXX.rules"
@@ -427,25 +429,6 @@ static struct suite *
 get_suite(const char *name)
 {
 	struct suite *s;
-	/* this is the list meson calls, ensure we don't miss out on tests */
-	const char * allowed_suites[] = {
-		"config:", "context:", "device:", "events:", "gestures:",
-		"keyboard:", "lid:", "log:", "misc:", "pad:", "path:",
-		"pointer:", "quirks:", "switch:", "tablet:", "tablet-mode:",
-		"tap:", "timer:", "totem:", "touch:", "touchpad:",
-		"trackball:", "trackpoint:", "udev:",
-	};
-	const char **allowed;
-	bool found = false;
-
-	ARRAY_FOR_EACH(allowed_suites, allowed) {
-		if (strstartswith(name, *allowed)) {
-			found = true;
-			break;
-		}
-	}
-	if (!found)
-		litest_abort_msg("Suite name '%s' is not allowed\n", name);
 
 	list_for_each(s, &all_tests, node) {
 		if (streq(s->name, name))
@@ -462,13 +445,28 @@ get_suite(const char *name)
 }
 
 static void
-litest_add_tcase(const char *suite_name,
+create_suite_name(const char *filename, char suitename[64])
+{
+	char *trunk = trunkname(filename);
+	char *p = trunk;
+
+	/* strip the test- prefix */
+	if (strstartswith(trunk, "test-"))
+		p += 5;
+
+	snprintf(suitename, 64, "%s", p);
+	free(trunk);
+}
+
+static void
+litest_add_tcase(const char *filename,
 		 const char *funcname,
 		 const void *func,
 		 int64_t required,
 		 int64_t excluded,
 		 const struct range *range)
 {
+	char suite_name[65];
 	struct suite *suite;
 	bool added = false;
 
@@ -480,9 +478,9 @@ litest_add_tcase(const char *suite_name,
 	    fnmatch(filter_test, funcname, 0) != 0)
 		return;
 
-	if (filter_group &&
-	    strstr(suite_name, filter_group) == NULL &&
-	    fnmatch(filter_group, suite_name, 0) != 0)
+	create_suite_name(filename, suite_name);
+
+	if (filter_group && fnmatch(filter_group, suite_name, 0) != 0)
 		return;
 
 	suite = get_suite(suite_name);
@@ -616,7 +614,7 @@ _litest_add_for_device(const char *name,
 }
 
 void
-_litest_add_ranged_for_device(const char *name,
+_litest_add_ranged_for_device(const char *filename,
 			      const char *funcname,
 			      const void *func,
 			      enum litest_device_type type,
@@ -625,6 +623,7 @@ _litest_add_ranged_for_device(const char *name,
 	struct suite *s;
 	struct litest_test_device *dev;
 	bool device_filtered = false;
+	char suite_name[64];
 
 	litest_assert(type < LITEST_NO_DEVICE);
 
@@ -633,12 +632,11 @@ _litest_add_ranged_for_device(const char *name,
 	    fnmatch(filter_test, funcname, 0) != 0)
 		return;
 
-	if (filter_group &&
-	    strstr(name, filter_group) == NULL &&
-	    fnmatch(filter_group, name, 0) != 0)
+	create_suite_name(filename, suite_name);
+	if (filter_group && fnmatch(filter_group, suite_name, 0) != 0)
 		return;
 
-	s = get_suite(name);
+	s = get_suite(suite_name);
 	list_for_each(dev, &devices, node) {
 		if (filter_device &&
 		    strstr(dev->shortname, filter_device) == NULL &&
@@ -843,9 +841,9 @@ static void
 close_restricted(int fd, void *userdata)
 {
 	struct litest_context *ctx = userdata;
-	struct path *p, *tmp;
+	struct path *p;
 
-	list_for_each_safe(p, tmp, &ctx->paths, link) {
+	list_for_each_safe(p, &ctx->paths, link) {
 		if (p->fd != fd)
 			continue;
 		list_remove(&p->link);
@@ -864,9 +862,9 @@ struct libinput_interface interface = {
 static void
 litest_signal(int sig)
 {
-	struct created_file *f, *tmp;
+	struct created_file *f;
 
-	list_for_each_safe(f, tmp, &created_files_list, link) {
+	list_for_each_safe(f, &created_files_list, link) {
 		list_remove(&f->link);
 		unlink(f->path);
 		rmdir(f->path);
@@ -899,12 +897,12 @@ litest_setup_sighandler(int sig)
 static void
 litest_free_test_list(struct list *tests)
 {
-	struct suite *s, *snext;
+	struct suite *s;
 
-	list_for_each_safe(s, snext, tests, node) {
-		struct test *t, *tnext;
+	list_for_each_safe(s, tests, node) {
+		struct test *t;
 
-		list_for_each_safe(t, tnext, &s->tests, node) {
+		list_for_each_safe(t, &s->tests, node) {
 			free(t->name);
 			free(t->devname);
 			list_remove(&t->node);
@@ -1004,7 +1002,7 @@ litest_run_suite(struct list *tests, int which, int max, int error_fd)
 		struct list node;
 		char *name;
 	};
-	struct name *n, *tmp;
+	struct name *n;
 	struct list testnames;
 	const char *data_path;
 
@@ -1120,7 +1118,7 @@ litest_run_suite(struct list *tests, int which, int max, int error_fd)
 	}
 	srunner_free(sr);
 out:
-	list_for_each_safe(n, tmp, &testnames, node) {
+	list_for_each_safe(n, &testnames, node) {
 		free(n->name);
 		free(n);
 	}
@@ -1424,7 +1422,7 @@ litest_install_model_quirks(struct list *created_files_list)
 				false);
 	list_insert(created_files_list, &file->link);
 
-	/* Ony install the litest device rule when we're running as system
+	/* Only install the litest device rule when we're running as system
 	 * test suite, we expect the others to be in place already */
 	if (use_system_rules_quirks)
 		return;
@@ -1568,7 +1566,7 @@ mkdir_p(const char *dir)
 	if (streq(dir, "/"))
 		return;
 
-	path = strdup(dir);
+	path = safe_strdup(dir);
 	parent = dirname(path);
 
 	mkdir_p(parent);
@@ -1596,12 +1594,12 @@ litest_init_udev_rules(struct list *created_files)
 static inline void
 litest_remove_udev_rules(struct list *created_files_list)
 {
-	struct created_file *f, *tmp;
+	struct created_file *f;
 	bool reload_udev;
 
 	reload_udev = !list_empty(created_files_list);
 
-	list_for_each_safe(f, tmp, created_files_list, link) {
+	list_for_each_safe(f, created_files_list, link) {
 		list_remove(&f->link);
 		unlink(f->path);
 		rmdir(f->path);
@@ -1716,7 +1714,7 @@ litest_create_context(void)
 void
 litest_destroy_context(struct libinput *li)
 {
-	struct path *p, *tmp;
+	struct path *p;
 	struct litest_context *ctx;
 
 
@@ -1724,7 +1722,7 @@ litest_destroy_context(struct libinput *li)
 	litest_assert_ptr_notnull(ctx);
 	libinput_unref(li);
 
-	list_for_each_safe(p, tmp, &ctx->paths, link) {
+	list_for_each_safe(p, &ctx->paths, link) {
 		litest_abort_msg("Device paths should be removed by now");
 	}
 	free(ctx);
@@ -1752,7 +1750,8 @@ litest_bug_log_handler(struct libinput *libinput,
 		       va_list args)
 {
 	if (strstr(format, "client bug: ") ||
-	    strstr(format, "libinput bug: "))
+	    strstr(format, "libinput bug: ") ||
+	    strstr(format, "kernel bug: "))
 		return;
 
 	litest_abort_msg("Expected bug statement in log msg, aborting.\n");
@@ -1812,6 +1811,7 @@ litest_add_device_with_overrides(struct libinput *libinput,
 			d->interface->min[ABS_Y] = libevdev_get_abs_minimum(d->evdev, code);
 			d->interface->max[ABS_Y] = libevdev_get_abs_maximum(d->evdev, code);
 		}
+		d->interface->tool_type = BTN_TOOL_PEN;
 	}
 	return d;
 }
@@ -1892,7 +1892,7 @@ udev_wait_for_device_event(struct udev_monitor *udev_monitor,
 		udev_device = udev_monitor_receive_device(udev_monitor);
 		litest_assert_notnull(udev_device);
 		udev_action = udev_device_get_action(udev_device);
-		if (!streq(udev_action, udev_event)) {
+		if (!udev_action || !streq(udev_action, udev_event)) {
 			udev_device_unref(udev_device);
 			continue;
 		}
@@ -2444,15 +2444,56 @@ tablet_ignore_event(const struct input_event *ev, int value)
 }
 
 void
+litest_tablet_set_tool_type(struct litest_device *d, unsigned int code)
+{
+	switch (code) {
+	case BTN_TOOL_PEN:
+	case BTN_TOOL_RUBBER:
+	case BTN_TOOL_BRUSH:
+	case BTN_TOOL_PENCIL:
+	case BTN_TOOL_AIRBRUSH:
+	case BTN_TOOL_MOUSE:
+	case BTN_TOOL_LENS:
+		break;
+	default:
+		abort();
+	}
+
+	d->interface->tool_type = code;
+}
+
+static void
+litest_tool_event(struct litest_device *d, int value)
+{
+	unsigned int tool = d->interface->tool_type;
+
+	litest_event(d, EV_KEY, tool, value);
+}
+
+void
 litest_tablet_proximity_in(struct litest_device *d, int x, int y, struct axis_replacement *axes)
 {
 	struct input_event *ev;
 
+	/* If the test device overrides proximity_in and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_proximity_in &&
+	    d->interface->tablet_proximity_in(d, d->interface->tool_type, x, y, axes))
+		return;
+
 	ev = d->interface->tablet_proximity_in_events;
 	while (ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1) {
-		int value = auto_assign_tablet_value(d, ev, x, y, axes);
-		if (!tablet_ignore_event(ev, value))
-			litest_event(d, ev->type, ev->code, value);
+		int value;
+
+		switch (evbit(ev->type, ev->code)) {
+		case evbit(EV_KEY, LITEST_BTN_TOOL_AUTO):
+			litest_tool_event(d, ev->value);
+			break;
+		default:
+			value = auto_assign_tablet_value(d, ev, x, y, axes);
+			if (!tablet_ignore_event(ev, value))
+				litest_event(d, ev->type, ev->code, value);
+		}
 		ev++;
 	}
 }
@@ -2462,11 +2503,26 @@ litest_tablet_proximity_out(struct litest_device *d)
 {
 	struct input_event *ev;
 
+	/* If the test device overrides proximity_out and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_proximity_out &&
+	    d->interface->tablet_proximity_out(d, d->interface->tool_type))
+		return;
+
 	ev = d->interface->tablet_proximity_out_events;
 	while (ev && (int16_t)ev->type != -1 && (int16_t)ev->code != -1) {
-		int value = auto_assign_tablet_value(d, ev, -1, -1, NULL);
-		if (!tablet_ignore_event(ev, value))
-			litest_event(d, ev->type, ev->code, value);
+		int value;
+
+		switch (evbit(ev->type, ev->code)) {
+		case evbit(EV_KEY, LITEST_BTN_TOOL_AUTO):
+			litest_tool_event(d, ev->value);
+			break;
+		default:
+			value = auto_assign_tablet_value(d, ev, -1, -1, NULL);
+			if (!tablet_ignore_event(ev, value))
+				litest_event(d, ev->type, ev->code, value);
+			break;
+		}
 		ev++;
 	}
 }
@@ -2521,21 +2577,20 @@ litest_touch_move_three_touches(struct litest_device *d,
 {
 	int sleep_ms = 10;
 
-	for (int i = 0; i < steps - 1; i++) {
-		litest_touch_move(d, 0, x0 + dx / steps * i,
-					y0 + dy / steps * i);
-		litest_touch_move(d, 1, x1 + dx / steps * i,
-					y1 + dy / steps * i);
-		litest_touch_move(d, 2, x2 + dx / steps * i,
-					y2 + dy / steps * i);
+	for (int i = 1; i <= steps; i++) {
+		double step_x = dx / steps * i;
+		double step_y = dy / steps * i;
+
+		litest_push_event_frame(d);
+		litest_touch_move(d, 0, x0 + step_x, y0 + step_y);
+		litest_touch_move(d, 1, x1 + step_x, y1 + step_y);
+		litest_touch_move(d, 2, x2 + step_x, y2 + step_y);
+		litest_pop_event_frame(d);
 
 		libinput_dispatch(d->libinput);
 		msleep(sleep_ms);
-		libinput_dispatch(d->libinput);
 	}
-	litest_touch_move(d, 0, x0 + dx, y0 + dy);
-	litest_touch_move(d, 1, x1 + dx, y1 + dy);
-	litest_touch_move(d, 2, x2 + dx, y2 + dy);
+	libinput_dispatch(d->libinput);
 }
 
 void
@@ -3043,6 +3098,15 @@ litest_event_type_str(enum libinput_event_type type)
 	case LIBINPUT_EVENT_POINTER_AXIS:
 		str = "AXIS";
 		break;
+	case LIBINPUT_EVENT_POINTER_SCROLL_WHEEL:
+		str = "SCROLL_WHEEL";
+		break;
+	case LIBINPUT_EVENT_POINTER_SCROLL_FINGER:
+		str = "SCROLL_FINGER";
+		break;
+	case LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS:
+		str = "SCROLL_CONTINUOUS";
+		break;
 	case LIBINPUT_EVENT_TOUCH_DOWN:
 		str = "TOUCH DOWN";
 		break;
@@ -3059,7 +3123,7 @@ litest_event_type_str(enum libinput_event_type type)
 		str = "TOUCH FRAME";
 		break;
 	case LIBINPUT_EVENT_GESTURE_SWIPE_BEGIN:
-		str = "GESTURE SWIPE START";
+		str = "GESTURE SWIPE BEGIN";
 		break;
 	case LIBINPUT_EVENT_GESTURE_SWIPE_UPDATE:
 		str = "GESTURE SWIPE UPDATE";
@@ -3068,13 +3132,19 @@ litest_event_type_str(enum libinput_event_type type)
 		str = "GESTURE SWIPE END";
 		break;
 	case LIBINPUT_EVENT_GESTURE_PINCH_BEGIN:
-		str = "GESTURE PINCH START";
+		str = "GESTURE PINCH BEGIN";
 		break;
 	case LIBINPUT_EVENT_GESTURE_PINCH_UPDATE:
 		str = "GESTURE PINCH UPDATE";
 		break;
 	case LIBINPUT_EVENT_GESTURE_PINCH_END:
 		str = "GESTURE PINCH END";
+		break;
+	case LIBINPUT_EVENT_GESTURE_HOLD_BEGIN:
+		str = "GESTURE HOLD BEGIN";
+		break;
+	case LIBINPUT_EVENT_GESTURE_HOLD_END:
+		str = "GESTURE HOLD END";
 		break;
 	case LIBINPUT_EVENT_TABLET_TOOL_AXIS:
 		str = "TABLET TOOL AXIS";
@@ -3208,24 +3278,58 @@ litest_print_event(struct libinput_event *event)
 	fprintf(stderr, "\n");
 }
 
+#define litest_assert_event_type_is_one_of(...) \
+    _litest_assert_event_type_is_one_of(__VA_ARGS__, -1)
+
+static void
+_litest_assert_event_type_is_one_of(struct libinput_event *event, ...)
+{
+	va_list args;
+	enum libinput_event_type expected_type;
+	enum libinput_event_type actual_type = libinput_event_get_type(event);
+	bool match = false;
+
+	va_start(args, event);
+	expected_type = va_arg(args, int);
+	while ((int)expected_type != -1 && !match) {
+		match = (actual_type == expected_type);
+		expected_type = va_arg(args, int);
+	}
+	va_end(args);
+
+	if (match)
+		return;
+
+	fprintf(stderr,
+		"FAILED EVENT TYPE: %s: have %s (%d) but want ",
+		libinput_device_get_name(libinput_event_get_device(event)),
+		litest_event_get_type_str(event),
+		libinput_event_get_type(event));
+
+	va_start(args, event);
+	expected_type = va_arg(args, int);
+	while ((int)expected_type != -1) {
+		fprintf(stderr,
+			"%s (%d)",
+			litest_event_type_str(expected_type),
+			expected_type);
+		expected_type = va_arg(args, int);
+
+		if ((int)expected_type != -1)
+			fprintf(stderr, " || ");
+	}
+
+	fprintf(stderr, "\nWrong event is: ");
+	litest_print_event(event);
+	litest_backtrace();
+	abort();
+}
+
 void
 litest_assert_event_type(struct libinput_event *event,
 			 enum libinput_event_type want)
 {
-	if (libinput_event_get_type(event) == want)
-		return;
-
-	fprintf(stderr,
-		"FAILED EVENT TYPE: %s: have %s (%d) but want %s (%d)\n",
-		libinput_device_get_name(libinput_event_get_device(event)),
-		litest_event_get_type_str(event),
-		libinput_event_get_type(event),
-		litest_event_type_str(want),
-		want);
-	fprintf(stderr, "Wrong event is: ");
-	litest_print_event(event);
-	litest_backtrace();
-	abort();
+	litest_assert_event_type_is_one_of(event, want);
 }
 
 void
@@ -3455,22 +3559,40 @@ litest_is_button_event(struct libinput_event *event,
 
 struct libinput_event_pointer *
 litest_is_axis_event(struct libinput_event *event,
+		     enum libinput_event_type axis_type,
 		     enum libinput_pointer_axis axis,
 		     enum libinput_pointer_axis_source source)
 {
 	struct libinput_event_pointer *ptrev;
-	enum libinput_event_type type = LIBINPUT_EVENT_POINTER_AXIS;
+
+	litest_assert(axis_type == LIBINPUT_EVENT_POINTER_SCROLL_WHEEL ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_FINGER ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS);
 
 	litest_assert_ptr_notnull(event);
-	litest_assert_event_type(event, type);
+	litest_assert_event_type_is_one_of(event,
+					   LIBINPUT_EVENT_POINTER_AXIS,
+					   axis_type);
 	ptrev = libinput_event_get_pointer_event(event);
 	litest_assert(libinput_event_pointer_has_axis(ptrev, axis));
 
 	if (source != 0)
-		litest_assert_int_eq(libinput_event_pointer_get_axis_source(ptrev),
+		litest_assert_int_eq(litest_event_pointer_get_axis_source(ptrev),
 				     source);
 
 	return ptrev;
+}
+
+bool
+litest_is_high_res_axis_event(struct libinput_event *event)
+{
+	litest_assert_event_type_is_one_of(event,
+					   LIBINPUT_EVENT_POINTER_AXIS,
+					   LIBINPUT_EVENT_POINTER_SCROLL_WHEEL,
+					   LIBINPUT_EVENT_POINTER_SCROLL_FINGER,
+					   LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS);
+
+	return (libinput_event_get_type(event) != LIBINPUT_EVENT_POINTER_AXIS);
 }
 
 struct libinput_event_pointer *
@@ -3591,6 +3713,20 @@ litest_is_gesture_event(struct libinput_event *event,
 	return gevent;
 }
 
+void
+litest_assert_gesture_event(struct libinput *li,
+			    enum libinput_event_type type,
+			    int nfingers)
+{
+	struct libinput_event *event;
+
+	litest_wait_for_event(li);
+	event = libinput_get_event(li);
+
+	litest_is_gesture_event(event, type, nfingers);
+	libinput_event_destroy(event);
+}
+
 struct libinput_event_tablet_tool *
 litest_is_tablet_event(struct libinput_event *event,
 		       enum libinput_event_type type)
@@ -3641,6 +3777,53 @@ litest_is_proximity_event(struct libinput_event *event,
 	litest_assert_int_eq(libinput_event_tablet_tool_get_proximity_state(tev),
 			     state);
 	return tev;
+}
+
+double
+litest_event_pointer_get_value(struct libinput_event_pointer *ptrev,
+			       enum libinput_pointer_axis axis)
+{
+	struct libinput_event *event;
+	enum libinput_event_type type;
+
+	event = libinput_event_pointer_get_base_event(ptrev);
+	type = libinput_event_get_type(event);
+
+	switch (type) {
+	case LIBINPUT_EVENT_POINTER_AXIS:
+		return libinput_event_pointer_get_axis_value(ptrev, axis);
+	case LIBINPUT_EVENT_POINTER_SCROLL_WHEEL:
+		return libinput_event_pointer_get_scroll_value_v120(ptrev, axis);
+	case LIBINPUT_EVENT_POINTER_SCROLL_FINGER:
+	case LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS:
+		return libinput_event_pointer_get_scroll_value(ptrev, axis);
+	default:
+		abort();
+	}
+}
+
+enum libinput_pointer_axis_source
+litest_event_pointer_get_axis_source(struct libinput_event_pointer *ptrev)
+{
+	struct libinput_event *event;
+	enum libinput_event_type type;
+
+	event = libinput_event_pointer_get_base_event(ptrev);
+	type = libinput_event_get_type(event);
+
+	if (type == LIBINPUT_EVENT_POINTER_AXIS)
+		return libinput_event_pointer_get_axis_source(ptrev);
+
+	switch (type) {
+	case LIBINPUT_EVENT_POINTER_SCROLL_WHEEL:
+		return LIBINPUT_POINTER_AXIS_SOURCE_WHEEL;
+	case LIBINPUT_EVENT_POINTER_SCROLL_FINGER:
+		return LIBINPUT_POINTER_AXIS_SOURCE_FINGER;
+	case LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS:
+		return LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS;
+	default:
+		abort();
+	}
 }
 
 void litest_assert_tablet_proximity_event(struct libinput *li,
@@ -3780,13 +3963,12 @@ litest_assert_pad_button_event(struct libinput *li,
 			       enum libinput_button_state state)
 {
 	struct libinput_event *event;
-	struct libinput_event_tablet_pad *pev;
 
 	litest_wait_for_event(li);
 	event = libinput_get_event(li);
 
-	pev = litest_is_pad_button_event(event, button, state);
-	libinput_event_destroy(libinput_event_tablet_pad_get_base_event(pev));
+	litest_is_pad_button_event(event, button, state);
+	libinput_event_destroy(event);
 }
 
 void
@@ -3795,61 +3977,119 @@ litest_assert_pad_key_event(struct libinput *li,
 			    enum libinput_key_state state)
 {
 	struct libinput_event *event;
-	struct libinput_event_tablet_pad *pev;
 
 	litest_wait_for_event(li);
 	event = libinput_get_event(li);
 
-	pev = litest_is_pad_key_event(event, key, state);
-	libinput_event_destroy(libinput_event_tablet_pad_get_base_event(pev));
+	litest_is_pad_key_event(event, key, state);
+	libinput_event_destroy(event);
 }
 
 void
 litest_assert_scroll(struct libinput *li,
+		     enum libinput_event_type axis_type,
 		     enum libinput_pointer_axis axis,
 		     int minimum_movement)
 {
-	struct libinput_event *event, *next_event;
+	struct libinput_event *event;
 	struct libinput_event_pointer *ptrev;
+	bool last_hi_res_event_found, last_low_res_event_found;
 	int value;
 	int nevents = 0;
 
+	litest_assert(axis_type == LIBINPUT_EVENT_POINTER_SCROLL_WHEEL ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_FINGER ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS);
+
+	last_hi_res_event_found = false;
+	last_low_res_event_found = false;
 	event = libinput_get_event(li);
-	next_event = libinput_get_event(li);
-	litest_assert_ptr_notnull(next_event); /* At least 1 scroll + stop scroll */
+	litest_assert_ptr_notnull(event);
 
 	while (event) {
-		ptrev = litest_is_axis_event(event, axis, 0);
+		int min = minimum_movement;
+
+		ptrev = litest_is_axis_event(event, axis_type, axis, 0);
 		nevents++;
 
-		if (next_event) {
-			int min = minimum_movement;
+		/* Due to how the hysteresis works on touchpad
+		 * events, the first event is reduced by the
+		 * hysteresis margin that can cause the first event
+		 * go under the minimum we expect for all other
+		 * events */
+		if (nevents == 1)
+			min = minimum_movement/2;
 
-			value = libinput_event_pointer_get_axis_value(ptrev,
-								      axis);
-			/* Due to how the hysteresis works on touchpad
-			 * events, the first event is reduced by the
-			 * hysteresis margin that can cause the first event
-			 * go under the minimum we expect for all other
-			 * events */
-			if (nevents == 1)
-				min = minimum_movement/2;
+		value = litest_event_pointer_get_value(ptrev, axis);
+		if (litest_is_high_res_axis_event(event)) {
+			litest_assert(!last_hi_res_event_found);
 
-			/* Normal scroll event, check dir */
+			if (axis_type == LIBINPUT_EVENT_POINTER_SCROLL_WHEEL)
+				min *= 120;
+
+			if (value == 0)
+				last_hi_res_event_found = true;
+		} else {
+			litest_assert(!last_low_res_event_found);
+
+			if (value == 0)
+				last_low_res_event_found = true;
+		}
+
+		if (value != 0) {
 			if (minimum_movement > 0)
 				litest_assert_int_ge(value, min);
 			else
 				litest_assert_int_le(value, min);
-		} else {
-			/* Last scroll event, must be 0 */
-			ck_assert_double_eq(
-				libinput_event_pointer_get_axis_value(ptrev, axis),
-				0.0);
 		}
+
 		libinput_event_destroy(event);
-		event = next_event;
-		next_event = libinput_get_event(li);
+		event = libinput_get_event(li);
 	}
+
+	litest_assert(last_low_res_event_found);
+	litest_assert(last_hi_res_event_found);
+}
+
+void
+litest_assert_axis_end_sequence(struct libinput *li,
+				enum libinput_event_type axis_type,
+				enum libinput_pointer_axis axis,
+				enum libinput_pointer_axis_source source)
+{
+	struct libinput_event *event;
+	struct libinput_event_pointer *ptrev;
+	bool last_hi_res_event_found, last_low_res_event_found;
+	double val;
+	int i;
+
+	litest_assert(axis_type == LIBINPUT_EVENT_POINTER_SCROLL_WHEEL ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_FINGER ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS);
+
+	last_hi_res_event_found = false;
+	last_low_res_event_found = false;
+
+	/* both high and low scroll end events must be sent */
+	for (i = 0; i < 2; i++) {
+		event = libinput_get_event(li);
+		ptrev = litest_is_axis_event(event, axis_type, axis, source);
+		val = litest_event_pointer_get_value(ptrev, axis);
+		ck_assert(val == 0.0);
+
+		if (litest_is_high_res_axis_event(event)) {
+			litest_assert(!last_hi_res_event_found);
+			last_hi_res_event_found = true;
+		} else {
+			litest_assert(!last_low_res_event_found);
+			last_low_res_event_found = true;
+		}
+
+		libinput_event_destroy(event);
+	}
+
+	litest_assert(last_low_res_event_found);
+	litest_assert(last_hi_res_event_found);
 }
 
 void
@@ -3865,8 +4105,31 @@ litest_assert_only_typed_events(struct libinput *li,
 	litest_assert_notnull(event);
 
 	while (event) {
-		litest_assert_int_eq(libinput_event_get_type(event),
-                                     type);
+		litest_assert_event_type(event, type);
+		libinput_event_destroy(event);
+		libinput_dispatch(li);
+		event = libinput_get_event(li);
+	}
+}
+
+void
+litest_assert_only_axis_events(struct libinput *li,
+			       enum libinput_event_type axis_type)
+{
+	struct libinput_event *event;
+
+	litest_assert(axis_type == LIBINPUT_EVENT_POINTER_SCROLL_WHEEL ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_FINGER ||
+		      axis_type == LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS);
+
+	libinput_dispatch(li);
+	event = libinput_get_event(li);
+	litest_assert_notnull(event);
+
+	while (event) {
+		litest_assert_event_type_is_one_of(event,
+						   LIBINPUT_EVENT_POINTER_AXIS,
+						   axis_type);
 		libinput_event_destroy(event);
 		libinput_dispatch(li);
 		event = libinput_get_event(li);
@@ -4003,7 +4266,7 @@ litest_assert_touch_cancel(struct libinput *li)
 void
 litest_timeout_tap(void)
 {
-	msleep(200);
+	msleep(300);
 }
 
 void
@@ -4070,6 +4333,18 @@ void
 litest_timeout_gesture_scroll(void)
 {
 	msleep(180);
+}
+
+void
+litest_timeout_gesture_hold(void)
+{
+	msleep(300);
+}
+
+void
+litest_timeout_gesture_quick_hold(void)
+{
+	msleep(60);
 }
 
 void
@@ -4544,35 +4819,36 @@ main(int argc, char **argv)
 	int tty_mode = -1;
 	int failed_tests;
 	int rc;
+	const char *meson_testthreads;
 
 	in_debugger = is_debugger_attached();
 	if (in_debugger || RUNNING_ON_VALGRIND)
 		setenv("CK_FORK", "no", 0);
 
-	jobs = get_nprocs();
-	if (!RUNNING_ON_VALGRIND)
-		jobs *= 2;
+	if ((meson_testthreads = getenv("MESON_TESTTHREADS")) == NULL ||
+	     !safe_atoi(meson_testthreads, &jobs)) {
+		jobs = get_nprocs();
+		if (!RUNNING_ON_VALGRIND)
+			jobs *= 2;
+	}
 
 	mode = litest_parse_argv(argc, argv);
 	if (mode == LITEST_MODE_ERROR)
 		return EXIT_FAILURE;
 
-	if (!run_deviceless && (rc = check_device_access()) != 0)
-			return rc;
-
 	litest_init_test_devices();
-
 	list_init(&all_tests);
-
-	setenv("CK_DEFAULT_TIMEOUT", "30", 0);
-	setenv("LIBINPUT_RUNNING_TEST_SUITE", "1", 1);
-
 	setup_tests();
-
 	if (mode == LITEST_MODE_LIST) {
 		litest_list_tests(&all_tests);
 		return EXIT_SUCCESS;
 	}
+
+	if (!run_deviceless && (rc = check_device_access()) != 0)
+		return rc;
+
+	setenv("CK_DEFAULT_TIMEOUT", "30", 0);
+	setenv("LIBINPUT_RUNNING_TEST_SUITE", "1", 1);
 
 	if (setrlimit(RLIMIT_CORE, &corelimit) != 0)
 		perror("WARNING: Core dumps not disabled");

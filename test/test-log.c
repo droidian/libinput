@@ -47,17 +47,34 @@ simple_log_handler(struct libinput *libinput,
 	litest_assert_notnull(format);
 }
 
+
+static int open_restricted(const char *path, int flags, void *data)
+{
+       int fd;
+       fd = open(path, flags);
+       return fd < 0 ? -errno : fd;
+}
+static void close_restricted(int fd, void *data)
+{
+       close(fd);
+}
+
+static const struct libinput_interface simple_interface = {
+       .open_restricted = open_restricted,
+       .close_restricted = close_restricted,
+};
+
 START_TEST(log_default_priority)
 {
 	enum libinput_log_priority pri;
 	struct libinput *li;
 
-	li = litest_create_context();
+	li = libinput_path_create_context(&simple_interface, NULL);
 	pri = libinput_log_get_priority(li);
 
 	ck_assert_int_eq(pri, LIBINPUT_LOG_PRIORITY_ERROR);
 
-	litest_destroy_context(li);
+	libinput_unref(li);
 }
 END_TEST
 
@@ -188,12 +205,12 @@ TEST_COLLECTION(log)
 {
 	struct range axes = { ABS_X, ABS_Y + 1};
 
-	litest_add_deviceless("log:defaults", log_default_priority);
-	litest_add_deviceless("log:logging", log_handler_invoked);
-	litest_add_deviceless("log:logging", log_handler_NULL);
-	litest_add_no_device("log:logging", log_priority);
+	litest_add_deviceless(log_default_priority);
+	litest_add_deviceless(log_handler_invoked);
+	litest_add_deviceless(log_handler_NULL);
+	litest_add_no_device(log_priority);
 
 	/* mtdev clips to axis ranges */
-	litest_add_ranged("log:warnings", log_axisrange_warning, LITEST_TOUCH, LITEST_PROTOCOL_A, &axes);
-	litest_add_ranged("log:warnings", log_axisrange_warning, LITEST_TOUCHPAD, LITEST_ANY, &axes);
+	litest_add_ranged(log_axisrange_warning, LITEST_TOUCH, LITEST_PROTOCOL_A, &axes);
+	litest_add_ranged(log_axisrange_warning, LITEST_TOUCHPAD, LITEST_ANY, &axes);
 }

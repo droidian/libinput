@@ -94,19 +94,21 @@ parse_udev_flag(struct evdev_device *device,
 		const char *property)
 {
 	const char *val;
+	bool b;
 
 	val = udev_device_get_property_value(udev_device, property);
 	if (!val)
 		return false;
 
-	if (streq(val, "1"))
-		return true;
-	if (!streq(val, "0"))
+	if (!parse_boolean_property(val, &b)) {
 		evdev_log_error(device,
 				"property %s has invalid value '%s'\n",
 				property,
 				val);
-	return false;
+		return false;
+	}
+
+	return b;
 }
 
 int
@@ -228,26 +230,35 @@ evdev_button_scroll_button(struct evdev_device *device,
 	}
 
 	if (is_press) {
-		enum timer_flags flags = TIMER_FLAG_NONE;
+		if (device->scroll.button < BTN_MOUSE + 5) {
+			/* For mouse buttons 1-5 (0x110 to 0x114) we apply a timeout before scrolling
+			 * since the button could also be used for regular clicking. */
+			enum timer_flags flags = TIMER_FLAG_NONE;
 
-		device->scroll.button_scroll_state = BUTTONSCROLL_BUTTON_DOWN;
+			device->scroll.button_scroll_state = BUTTONSCROLL_BUTTON_DOWN;
 
-		/* Special case: if middle button emulation is enabled and
-		 * our scroll button is the left or right button, we only
-		 * get here *after* the middle button timeout has expired
-		 * for that button press. The time passed is the button-down
-		 * time though (which is in the past), so we have to allow
-		 * for a negative timer to be set.
-		 */
-		if (device->middlebutton.enabled &&
-		    (device->scroll.button == BTN_LEFT ||
-		     device->scroll.button == BTN_RIGHT)) {
-			flags = TIMER_FLAG_ALLOW_NEGATIVE;
+			/* Special case: if middle button emulation is enabled and
+			 * our scroll button is the left or right button, we only
+			 * get here *after* the middle button timeout has expired
+			 * for that button press. The time passed is the button-down
+			 * time though (which is in the past), so we have to allow
+			 * for a negative timer to be set.
+			 */
+			if (device->middlebutton.enabled &&
+				(device->scroll.button == BTN_LEFT ||
+				device->scroll.button == BTN_RIGHT)) {
+				flags = TIMER_FLAG_ALLOW_NEGATIVE;
+			}
+
+			libinput_timer_set_flags(&device->scroll.timer,
+						time + DEFAULT_BUTTON_SCROLL_TIMEOUT,
+						flags);
+		} else {
+			/* For extra mouse buttons numbered 6 or more (0x115+) we assume it is
+			 * dedicated exclusively to scrolling, so we don't apply the timeout
+			 * in order to provide immediate scrolling responsiveness. */
+			device->scroll.button_scroll_state = BUTTONSCROLL_READY;
 		}
-
-		libinput_timer_set_flags(&device->scroll.timer,
-					 time + DEFAULT_BUTTON_SCROLL_TIMEOUT,
-					 flags);
 		device->scroll.button_down_time = time;
 		evdev_log_debug(device, "btnscroll: down\n");
 	} else {
@@ -375,12 +386,11 @@ evdev_device_transform_y(struct evdev_device *device,
 }
 
 void
-evdev_notify_axis(struct evdev_device *device,
-		  uint64_t time,
-		  uint32_t axes,
-		  enum libinput_pointer_axis_source source,
-		  const struct normalized_coords *delta_in,
-		  const struct discrete_coords *discrete_in)
+evdev_notify_axis_legacy_wheel(struct evdev_device *device,
+			       uint64_t time,
+			       uint32_t axes,
+			       const struct normalized_coords *delta_in,
+			       const struct discrete_coords *discrete_in)
 {
 	struct normalized_coords delta = *delta_in;
 	struct discrete_coords discrete = *discrete_in;
@@ -397,12 +407,78 @@ evdev_notify_axis(struct evdev_device *device,
 		discrete.y *= -1;
 	}
 
-	pointer_notify_axis(&device->base,
-			    time,
-			    axes,
-			    source,
-			    &delta,
-			    &discrete);
+	pointer_notify_axis_legacy_wheel(&device->base,
+					 time,
+					 axes,
+					 &delta,
+					 &discrete);
+}
+
+void
+evdev_notify_axis_wheel(struct evdev_device *device,
+			uint64_t time,
+			uint32_t axes,
+			const struct normalized_coords *delta_in,
+			const struct wheel_v120 *v120_in)
+{
+	struct normalized_coords delta = *delta_in;
+	struct wheel_v120 v120 = *v120_in;
+
+	if (device->scroll.invert_horizontal_scrolling) {
+		delta.x *= -1;
+		v120.x *= -1;
+	}
+
+	if (device->scroll.natural_scrolling_enabled) {
+		delta.x *= -1;
+		delta.y *= -1;
+		v120.x *= -1;
+		v120.y *= -1;
+	}
+
+	pointer_notify_axis_wheel(&device->base,
+				  time,
+				  axes,
+				  &delta,
+				  &v120);
+}
+
+void
+evdev_notify_axis_finger(struct evdev_device *device,
+			uint64_t time,
+			uint32_t axes,
+			const struct normalized_coords *delta_in)
+{
+	struct normalized_coords delta = *delta_in;
+
+	if (device->scroll.natural_scrolling_enabled) {
+		delta.x *= -1;
+		delta.y *= -1;
+	}
+
+	pointer_notify_axis_finger(&device->base,
+				  time,
+				  axes,
+				  &delta);
+}
+
+void
+evdev_notify_axis_continous(struct evdev_device *device,
+			    uint64_t time,
+			    uint32_t axes,
+			    const struct normalized_coords *delta_in)
+{
+	struct normalized_coords delta = *delta_in;
+
+	if (device->scroll.natural_scrolling_enabled) {
+		delta.x *= -1;
+		delta.y *= -1;
+	}
+
+	pointer_notify_axis_continuous(&device->base,
+				       time,
+				       axes,
+				       &delta);
 }
 
 static void
@@ -763,8 +839,8 @@ evdev_scroll_get_button_lock(struct libinput_device *device)
 
 	if (evdev->scroll.lock_state == BUTTONSCROLL_LOCK_DISABLED)
 		return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_DISABLED;
-	else
-		return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_ENABLED;
+
+	return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_ENABLED;
 }
 
 static enum libinput_config_scroll_button_lock_state
@@ -1024,6 +1100,7 @@ evdev_note_time_delay(struct evdev_device *device,
 {
 	struct libinput *libinput = evdev_libinput_context(device);
 	uint32_t tdelta;
+	uint64_t eventtime = input_event_time(ev);
 
 	/* if we have a current libinput_dispatch() snapshot, compare our
 	 * event time with the one from the snapshot. If we have more than
@@ -1031,10 +1108,11 @@ evdev_note_time_delay(struct evdev_device *device,
 	 * where there is no steady event flow and thus SYN_DROPPED may not
 	 * get hit by the kernel despite us being too slow.
 	 */
-	if (libinput->dispatch_time == 0)
+	if (libinput->dispatch_time == 0 ||
+	    eventtime > libinput->dispatch_time)
 		return;
 
-	tdelta = us2ms(libinput->dispatch_time - input_event_time(ev));
+	tdelta = us2ms(libinput->dispatch_time - eventtime);
 	if (tdelta > 10) {
 		evdev_log_bug_client_ratelimit(device,
 					       &device->delay_warning_limit,
@@ -1078,6 +1156,9 @@ evdev_device_dispatch(void *data)
 				once = true;
 			}
 			evdev_device_dispatch_one(device, &ev);
+		} else if (rc == -ENODEV) {
+			evdev_device_remove(device);
+			return;
 		}
 	} while (rc == LIBEVDEV_READ_STATUS_SUCCESS);
 
@@ -1806,7 +1887,9 @@ evdev_configure_device(struct evdev_device *device)
 		evdev_log_info(device,
 			 "device is an accelerometer, ignoring\n");
 		return NULL;
-	} else if (udev_tags & EVDEV_UDEV_TAG_ACCELEROMETER) {
+	}
+
+	if (udev_tags & EVDEV_UDEV_TAG_ACCELEROMETER) {
 		evdev_disable_accelerometer_axes(device);
 	}
 
@@ -1853,7 +1936,9 @@ evdev_configure_device(struct evdev_device *device)
 		evdev_log_info(device, "device is a tablet pad\n");
 		return dispatch;
 
-	} else if ((udev_tags & tablet_tags) == EVDEV_UDEV_TAG_TABLET) {
+	}
+
+	if ((udev_tags & tablet_tags) == EVDEV_UDEV_TAG_TABLET) {
 		dispatch = evdev_tablet_create(device);
 		device->seat_caps |= EVDEV_DEVICE_TABLET;
 		evdev_log_info(device, "device is a tablet\n");
@@ -2056,22 +2141,9 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	struct quirks_context *quirks;
 	struct quirks *q;
 	const struct quirk_tuples *t;
+	const uint32_t *props = NULL;
+	size_t nprops = 0;
 	char *prop;
-
-	/* Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
-	 * fdo bug 97147. Remove when RMI4 is commonplace */
-	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_HP_STREAM11_TOUCHPAD))
-		libevdev_enable_property(device->evdev,
-					 INPUT_PROP_BUTTONPAD);
-
-	/* Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
-	 * https://gitlab.freedesktop.org/libinput/libinput/issues/177 and
-	 * https://gitlab.freedesktop.org/libinput/libinput/issues/234 */
-	if (evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_T480S_TOUCHPAD) ||
-	    evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_T490S_TOUCHPAD) ||
-	    evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_L380_TOUCHPAD))
-		libevdev_enable_property(device->evdev,
-					 INPUT_PROP_BUTTONPAD);
 
 	/* Touchpad claims to have 4 slots but only ever sends 2
 	 * https://bugs.freedesktop.org/show_bug.cgi?id=98100 */
@@ -2089,12 +2161,36 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		libevdev_disable_event_code(device->evdev, EV_MSC, MSC_TIMESTAMP);
 	}
 
-	if (q && quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_DISABLE, &t)) {
-		int type, code;
-
+	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_ENABLE, &t)) {
 		for (size_t i = 0; i < t->ntuples; i++) {
-			type = t->tuples[i].first;
-			code = t->tuples[i].second;
+			const struct input_absinfo absinfo = {
+				.minimum = 0,
+				.maximum = 1,
+			};
+
+			int type = t->tuples[i].first;
+			int code = t->tuples[i].second;
+
+			if (code == EVENT_CODE_UNDEFINED)
+				libevdev_enable_event_type(device->evdev, type);
+			else
+				libevdev_enable_event_code(device->evdev,
+							    type,
+							    code,
+							    type == EV_ABS ?  &absinfo : NULL);
+			evdev_log_debug(device,
+					"quirks: enabling %s %s (%#x %#x)\n",
+					libevdev_event_type_get_name(type),
+					libevdev_event_code_get_name(type, code),
+					type,
+					code);
+		}
+	}
+
+	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_DISABLE, &t)) {
+		for (size_t i = 0; i < t->ntuples; i++) {
+			int type = t->tuples[i].first;
+			int code = t->tuples[i].second;
 
 			if (code == EVENT_CODE_UNDEFINED)
 				libevdev_disable_event_type(device->evdev,
@@ -2112,8 +2208,40 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		}
 	}
 
-	quirks_unref(q);
+	if (quirks_get_uint32_array(q,
+				    QUIRK_ATTR_INPUT_PROP_ENABLE,
+				    &props,
+				    &nprops)) {
+		for (size_t idx = 0; idx < nprops; idx++) {
+			unsigned int p = props[idx];
+			libevdev_enable_property(device->evdev, p);
+			evdev_log_debug(device,
+					"quirks: enabling %s (%#x)\n",
+					libevdev_property_get_name(p),
+					p);
+		}
+	}
 
+	if (quirks_get_uint32_array(q,
+					 QUIRK_ATTR_INPUT_PROP_DISABLE,
+					 &props,
+					 &nprops)) {
+#if HAVE_LIBEVDEV_DISABLE_PROPERTY
+		for (size_t idx = 0; idx < nprops; idx++) {
+			unsigned int p = props[idx];
+			libevdev_disable_property(device->evdev, p);
+			evdev_log_debug(device,
+					"quirks: disabling %s (%#x)\n",
+					libevdev_property_get_name(p),
+					p);
+		}
+#else
+		evdev_log_error(device,
+				"quirks: a quirk for this device requires newer libevdev than installed\n");
+#endif
+	}
+
+	quirks_unref(q);
 }
 
 static void
@@ -2145,7 +2273,10 @@ libevdev_log_func(const struct libevdev *evdev,
 
 	snprintf(fmt, sizeof(fmt), "%s%s", prefix, format);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 	log_msg_va(libinput, pri, fmt, args);
+#pragma GCC diagnostic pop
 }
 
 static bool
@@ -2231,8 +2362,8 @@ evdev_device_create(struct libinput_seat *seat,
 
 	/* at most 5 SYN_DROPPED log-messages per 30s */
 	ratelimit_init(&device->syn_drop_limit, s2us(30), 5);
-	/* at most 5 "delayed processing" log messages per minute */
-	ratelimit_init(&device->delay_warning_limit, s2us(60), 5);
+	/* at most 5 "delayed processing" log messages per hour */
+	ratelimit_init(&device->delay_warning_limit, s2us(60 * 60), 5);
 	/* at most 5 log-messages per 5s */
 	ratelimit_init(&device->nonpointer_rel_limit, s2us(5), 5);
 
@@ -2642,7 +2773,6 @@ evdev_post_scroll(struct evdev_device *device,
 		event.x = 0.0;
 
 	if (!normalized_is_zero(event)) {
-		const struct discrete_coords zero_discrete = { 0.0, 0.0 };
 		uint32_t axes = device->scroll.direction;
 
 		if (event.y == 0.0)
@@ -2650,12 +2780,19 @@ evdev_post_scroll(struct evdev_device *device,
 		if (event.x == 0.0)
 			axes &= ~bit(LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL);
 
-		evdev_notify_axis(device,
-				  time,
-				  axes,
-				  source,
-				  &event,
-				  &zero_discrete);
+		switch (source) {
+		case LIBINPUT_POINTER_AXIS_SOURCE_FINGER:
+			evdev_notify_axis_finger(device, time, axes, &event);
+			break;
+		case LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS:
+			evdev_notify_axis_continous(device, time, axes, &event);
+			break;
+		default:
+			evdev_log_bug_libinput(device,
+					       "Posting invalid scroll source %d\n",
+					       source);
+			break;
+		}
 	}
 }
 
@@ -2665,16 +2802,29 @@ evdev_stop_scroll(struct evdev_device *device,
 		  enum libinput_pointer_axis_source source)
 {
 	const struct normalized_coords zero = { 0.0, 0.0 };
-	const struct discrete_coords zero_discrete = { 0.0, 0.0 };
 
 	/* terminate scrolling with a zero scroll event */
-	if (device->scroll.direction != 0)
-		pointer_notify_axis(&device->base,
-				    time,
-				    device->scroll.direction,
-				    source,
-				    &zero,
-				    &zero_discrete);
+	if (device->scroll.direction != 0) {
+		switch (source) {
+		case LIBINPUT_POINTER_AXIS_SOURCE_FINGER:
+			pointer_notify_axis_finger(&device->base,
+						   time,
+						   device->scroll.direction,
+						   &zero);
+			break;
+		case LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS:
+			pointer_notify_axis_continuous(&device->base,
+						       time,
+						       device->scroll.direction,
+						       &zero);
+			break;
+		default:
+			evdev_log_bug_libinput(device,
+					       "Stopping invalid scroll source %d\n",
+					       source);
+			break;
+		}
+	}
 
 	device->scroll.buildup.x = 0;
 	device->scroll.buildup.y = 0;

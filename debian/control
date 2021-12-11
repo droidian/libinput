@@ -7,9 +7,11 @@ Build-Depends:
  debhelper-compat (= 12),
  meson,
  pkg-config,
+ check,
+ libgtk-3-dev,
  libmtdev-dev (>= 1.1.0),
  libudev-dev,
- libevdev-dev (>= 0.4),
+ libevdev-dev (>= 1.10.0),
  libwacom-dev (>= 0.20),
 Standards-Version: 4.5.0
 Vcs-Git: https://salsa.debian.org/xorg-team/lib/libinput.git
@@ -55,6 +57,7 @@ Description: input device management and event handling library - udev quirks
 
 Package: libinput10-udeb
 Package-Type: udeb
+Build-Profiles: <!noudeb>
 Section: debian-installer
 Architecture: any
 Depends:
@@ -71,7 +74,7 @@ Depends:
  libinput10 (= ${binary:Version}),
  libmtdev-dev (>= 1.1.0),
  libudev-dev,
- libevdev-dev (>= 0.4),
+ libevdev-dev (>= 1.10.0),
  libwacom-dev (>= 0.20),
  ${shlibs:Depends},
  ${misc:Depends},

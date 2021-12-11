@@ -4,6 +4,11 @@ if not sphinx.found()
 	error('Program "sphinx-build" not found or not executable. Try building with -Ddocumentation=false')
 endif
 
+yq = find_program('yq', required : false)
+if not yq.found()
+	warning('Program "yq" not found or not executable. Dependency list will not be built.')
+endif
+
 sphinx_config = configuration_data()
 sphinx_config.set('PROJECT_NAME', meson.project_name())
 sphinx_config.set('PROJECT_VERSION', meson.project_version())
@@ -45,6 +50,7 @@ src_404s = [
 	[ 'faqs.rst', 'faq.html'],
 	[ 'features.rst', 'features.html'],
 	[ 'gestures.rst', 'gestures.html'],
+	[ 'incorrectly-enabled-hires.rst', 'incorrectly-enabled-hires.html'],
 	[ 'middle-button-emulation.rst', 'middle_button_emulation.html'],
 	[ 'normalization-of-relative-motion.rst', 'motion_normalization.html'],
 	[ 'palm-detection.rst', 'palm_detection.html'],
@@ -138,6 +144,7 @@ src_rst = files(
 	'device-quirks.rst',
 	'faqs.rst',
 	'gestures.rst',
+	'incorrectly-enabled-hires.rst',
 	'middle-button-emulation.rst',
 	'normalization-of-relative-motion.rst',
 	'palm-detection.rst',
@@ -162,24 +169,18 @@ src_rst = files(
 	'trackpoints.rst',
 	'trackpoint-configuration.rst',
 	'what-is-libinput.rst',
+	'wheel-api.rst',
 	'features.rst',
 	'development.rst',
 	'troubleshooting.rst',
 	'configuration.rst',
 )
 
-config_noop = configuration_data()
-# Set a dummy replacement to silence meson warnings:
-# meson.build:487: WARNING: Got an empty configuration_data() object and
-# 		   found no substitutions in the input file 'foo'. If you
-# 		   want to copy a file to the build dir, use the 'copy:'
-# 		   keyword argument added in 0.47.0
-config_noop.set('dummy', 'dummy')
 src_sphinx = []
 foreach f : src_rst
 	sf = configure_file(input: f,
 			    output: '@PLAINNAME@',
-			    configuration : config_noop)
+			    copy : true)
 	src_sphinx += [ sf ]
 endforeach
 
@@ -187,6 +188,19 @@ configure_file(input: 'index.rst',
 	       output: 'index.rst',
 	       configuration: sphinx_config)
 
+dependencies_config = configuration_data()
+if yq.found()
+	distributions = ['fedora', 'ubuntu', 'debian', 'arch', 'alpine']
+	foreach distro : distributions
+		yq_filter = '.distributions[] | select(.name == "@0@") | .packages | join(" ")'.format(distro)
+		deps = run_command(yq, '-r', yq_filter,
+				   meson.source_root() / '.gitlab-ci' / 'config.yml').stdout()
+		dependencies_config.set('@0@_PACKAGES'.format(distro.to_upper()), deps)
+endforeach
+endif
+configure_file(input: 'dependencies.rst',
+	       output: 'dependencies.rst',
+	       configuration: dependencies_config)
 
 # do not use -j, it breaks on Ubuntu
 sphinx_output_dir = 'Documentation'
@@ -194,6 +208,6 @@ custom_target('sphinx',
 	      input : [ sphinx_conf_py, git_version_page ] + src_sphinx + dst_404s,
 	      output : [ sphinx_output_dir ],
 	      command : [ sphinx, '-q', '-b', 'html',
-			  '-d', join_paths(meson.current_build_dir(), 'doctrees'),
+			  '-d', meson.current_build_dir() / 'doctrees',
 			  meson.current_build_dir(), sphinx_output_dir],
 	      build_by_default : true)
