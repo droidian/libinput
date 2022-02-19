@@ -1,3 +1,15 @@
+libinput (1.19.3-2) unstable; urgency=medium
+
+  * Rebuild against new libwacom.
+
+ -- Timo Aaltonen <tjaalton@debian.org>  Mon, 07 Feb 2022 09:58:05 +0200
+
+libinput (1.19.3-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Timo Aaltonen <tjaalton@debian.org>  Fri, 14 Jan 2022 13:24:24 +0200
+
 libinput (1.19.2-1) unstable; urgency=medium
 
   * New upstream release.
