@@ -82,6 +82,28 @@ filter_dispatch_constant(struct motion_filter *filter,
 			 const struct device_float_coords *unaccelerated,
 			 void *data, uint64_t time);
 
+/**
+ * Apply a scroll filter.
+ * Depending on the device, and the acceleration profile,
+ * this filter allows the user to accelerate the scroll movement.
+ *
+ * Takes a set of unaccelerated deltas and applies the scroll filter to it.
+ *
+ * @param filter The device's motion filter
+ * @param unaccelerated The unaccelerated delta in the device's dpi
+ * resolution as specified during filter creation. If a device has uneven
+ * resolution for x and y, one axis needs to be scaled to match the
+ * originally provided resolution.
+ * @param data Custom data
+ * @param time The time of the delta
+ *
+ * @see filter_dispatch
+ */
+struct normalized_coords
+filter_dispatch_scroll(struct motion_filter *filter,
+		       const struct device_float_coords *unaccelerated,
+		       void *data, uint64_t time);
+
 void
 filter_restart(struct motion_filter *filter,
 	       void *data, uint64_t time);
@@ -102,6 +124,10 @@ typedef double (*accel_profile_func_t)(struct motion_filter *filter,
 				       void *data,
 				       double velocity,
 				       uint64_t time);
+
+bool
+filter_set_accel_config(struct motion_filter *filter,
+		        struct libinput_config_accel *accel_config);
 
 /* Pointer acceleration types */
 struct motion_filter *
@@ -134,6 +160,9 @@ create_pointer_accelerator_filter_trackpoint_flat(double multiplier);
 struct motion_filter *
 create_pointer_accelerator_filter_tablet(int xres, int yres);
 
+struct motion_filter *
+create_custom_accelerator_filter(void);
+
 /*
  * Pointer acceleration profiles.
  */
@@ -163,4 +192,19 @@ trackpoint_accel_profile(struct motion_filter *filter,
 			 void *data,
 			 double velocity,
 			 uint64_t time);
+double
+custom_accel_profile_fallback(struct motion_filter *filter,
+			      void *data,
+			      double speed_in,
+			      uint64_t time);
+double
+custom_accel_profile_motion(struct motion_filter *filter,
+			    void *data,
+			    double speed_in,
+			    uint64_t time);
+double
+custom_accel_profile_scroll(struct motion_filter *filter,
+			    void *data,
+			    double speed_in,
+			    uint64_t time);
 #endif /* FILTER_H */

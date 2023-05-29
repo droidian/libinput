@@ -1,5 +1,5 @@
 project('libinput', 'c',
-	version : '1.22.1',
+	version : '1.23.0',
 	license : 'MIT/Expat',
 	default_options : [ 'c_std=gnu99', 'warning_level=2' ],
 	meson_version : '>= 0.49.0')
@@ -292,6 +292,7 @@ dep_libinput_util = declare_dependency(link_with : libinput_util)
 ############ libfilter.a ############
 src_libfilter = [
 		'src/filter.c',
+		'src/filter-custom.c',
 		'src/filter-flat.c',
 		'src/filter-low-dpi.c',
 		'src/filter-mouse.c',
@@ -477,6 +478,13 @@ test('validate-quirks',
      suite : ['all']
      )
 
+quirks_file_tester = find_program('test/test_quirks_files.py')
+test('validate-quirks-files',
+     quirks_file_tester,
+     suite : ['all'],
+     env: ['MESON_SOURCE_ROOT=@0@'.format(meson.project_source_root())],
+     )
+
 libinput_list_devices_sources = [ 'tools/libinput-list-devices.c' ]
 libinput_list_devices = executable('libinput-list-devices',
 				   libinput_list_devices_sources,
@@ -511,6 +519,7 @@ src_python_tools = files(
 	      'tools/libinput-analyze-per-slot-delta.py',
 	      'tools/libinput-analyze-recording.py',
 	      'tools/libinput-analyze-touch-down-state.py',
+	      'tools/libinput-list-kernel-devices.py',
 	      'tools/libinput-measure-fuzz.py',
 	      'tools/libinput-measure-touchpad-size.py',
 	      'tools/libinput-measure-touchpad-tap.py',
@@ -545,7 +554,12 @@ if get_option('debug-gui')
 		config_h.set10('HAVE_GTK3', dep_gtk.found())
 	endif
 
-	gtk_targets = dep_gtk.get_pkgconfig_variable('targets')
+	if meson.version().version_compare('>= 0.58')
+		gtk_targets = dep_gtk.get_variable('targets')
+	else
+		gtk_targets = dep_gtk.get_pkgconfig_variable('targets')
+	endif
+
 	have_gtk_wayland = gtk_targets.contains('wayland')
 	have_gtk_x11 = gtk_targets.contains('x11')
 
@@ -562,7 +576,11 @@ if get_option('debug-gui')
 
 	if have_gtk_wayland and dep_wayland_client.found() and dep_wayland_protocols.found()
 		wayland_scanner = find_program('wayland-scanner')
-		wlproto_dir = dep_wayland_protocols.get_pkgconfig_variable('pkgdatadir')
+		if meson.version().version_compare('>= 0.58')
+			wlproto_dir = dep_wayland_protocols.get_variable('pkgdatadir')
+		else
+			wlproto_dir = dep_wayland_protocols.get_pkgconfig_variable('pkgdatadir')
+		endif
 
 		proto_name = 'pointer-constraints-unstable-v1'
 		input = files(wlproto_dir / 'unstable' / 'pointer-constraints' / '@0@.xml'.format(proto_name))
@@ -631,7 +649,7 @@ if get_option('buildtype') == 'debug' or get_option('buildtype') == 'debugoptimi
 					  configuration : config_tool_option_test)
 	test('tool-option-parsing',
 	     tool_option_test,
-	     args : [tool_option_test, '-n', 'auto'],
+	     args : [tool_option_test],
 	     suite : ['all', 'root'],
 	     timeout : 240)
 endif
@@ -965,6 +983,7 @@ src_man += files(
 	'tools/libinput-debug-events.man',
 	'tools/libinput-debug-tablet.man',
 	'tools/libinput-list-devices.man',
+	'tools/libinput-list-kernel-devices.man',
 	'tools/libinput-measure.man',
 	'tools/libinput-measure-fuzz.man',
 	'tools/libinput-measure-touchpad-size.man',

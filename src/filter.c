@@ -53,6 +53,14 @@ filter_dispatch_constant(struct motion_filter *filter,
 	return filter->interface->filter_constant(filter, unaccelerated, data, time);
 }
 
+struct normalized_coords
+filter_dispatch_scroll(struct motion_filter *filter,
+		       const struct device_float_coords *unaccelerated,
+		       void *data, uint64_t time)
+{
+	return filter->interface->filter_scroll(filter, unaccelerated, data, time);
+}
+
 void
 filter_restart(struct motion_filter *filter,
 	       void *data, uint64_t time)
@@ -89,6 +97,18 @@ filter_get_type(struct motion_filter *filter)
 	return filter->interface->type;
 }
 
+bool
+filter_set_accel_config(struct motion_filter *filter,
+			struct libinput_config_accel *accel_config)
+{
+	assert(filter_get_type(filter) == accel_config->profile);
+
+	if (!filter->interface->set_accel_config)
+		return false;
+
+	return filter->interface->set_accel_config(filter, accel_config);
+}
+
 void
 trackers_init(struct pointer_trackers *trackers, int ntrackers)
 {
@@ -103,7 +123,7 @@ void
 trackers_free(struct pointer_trackers *trackers)
 {
 	free(trackers->trackers);
-	free(trackers->smoothener);
+	pointer_delta_smoothener_destroy(trackers->smoothener);
 }
 
 void

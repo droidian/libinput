@@ -113,10 +113,10 @@ post_button_scroll(struct evdev_device *device,
 	case BUTTONSCROLL_SCROLLING:
 		{
 		const struct normalized_coords normalized =
-				filter_dispatch_constant(device->pointer.filter,
-						         &raw,
-							 device,
-							 time);
+				filter_dispatch_scroll(device->pointer.filter,
+						       &raw,
+						       device,
+						       time);
 		evdev_post_scroll(device, time,
 				  LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS,
 				  &normalized);
@@ -151,20 +151,18 @@ fallback_filter_defuzz_touch(struct fallback_dispatch *dispatch,
 	return false;
 }
 
-static inline void
+static inline struct device_float_coords
 fallback_rotate_relative(struct fallback_dispatch *dispatch,
 			 struct evdev_device *device)
 {
-	struct device_coords rel = dispatch->rel;
+	struct device_float_coords rel = { dispatch->rel.x, dispatch->rel.y };
 
 	if (!device->base.config.rotation)
-		return;
+		return rel;
 
-	/* loss of precision for non-90 degrees, but we only support 90 deg
-	 * right now anyway */
-	matrix_mult_vec(&dispatch->rotation.matrix, &rel.x, &rel.y);
+	matrix_mult_vec_double(&dispatch->rotation.matrix, &rel.x, &rel.y);
 
-	dispatch->rel = rel;
+	return rel;
 }
 
 static void
@@ -174,15 +172,12 @@ fallback_flush_relative_motion(struct fallback_dispatch *dispatch,
 {
 	struct libinput_device *base = &device->base;
 	struct normalized_coords accel;
-	struct device_float_coords raw;
 
 	if (!(device->seat_caps & EVDEV_DEVICE_POINTER))
 		return;
 
-	fallback_rotate_relative(dispatch, device);
+	struct device_float_coords raw = fallback_rotate_relative(dispatch, device);
 
-	raw.x = dispatch->rel.x;
-	raw.y = dispatch->rel.y;
 	dispatch->rel.x = 0;
 	dispatch->rel.y = 0;
 
@@ -813,9 +808,11 @@ fallback_arbitrate_touch(struct fallback_dispatch *dispatch,
 			 struct mt_slot *slot)
 {
 	bool discard = false;
+	struct device_coords point = slot->point;
+	evdev_transform_absolute(dispatch->device, &point);
 
 	if (dispatch->arbitration.state == ARBITRATION_IGNORE_RECT &&
-	    point_in_rect(&slot->point, &dispatch->arbitration.rect)) {
+	    point_in_rect(&point, &dispatch->arbitration.rect)) {
 		slot->palm_state = PALM_IS_PALM;
 		discard = true;
 	}
@@ -1002,19 +999,24 @@ cancel_touches(struct fallback_dispatch *dispatch,
 {
 	unsigned int idx;
 	bool need_frame = false;
+	struct device_coords point;
 
-	if (!rect || point_in_rect(&dispatch->abs.point, rect))
+	point = dispatch->abs.point;
+	evdev_transform_absolute(device, &point);
+	if (!rect || point_in_rect(&point, rect))
 		need_frame = fallback_flush_st_cancel(dispatch,
 						      device,
 						      time);
 
 	for (idx = 0; idx < dispatch->mt.slots_len; idx++) {
 		struct mt_slot *slot = &dispatch->mt.slots[idx];
+		point = slot->point;
+		evdev_transform_absolute(device, &point);
 
 		if (slot->seat_slot == -1)
 			continue;
 
-		if ((!rect || point_in_rect(&slot->point, rect)) &&
+		if ((!rect || point_in_rect(&point, rect)) &&
 		    fallback_flush_mt_cancel(dispatch, device, idx, time))
 			need_frame = true;
 	}
@@ -1488,7 +1490,7 @@ static void
 fallback_init_rotation(struct fallback_dispatch *dispatch,
 		       struct evdev_device *device)
 {
-	if ((device->model_flags & EVDEV_MODEL_TRACKBALL) == 0)
+	if (device->tags & EVDEV_TAG_TRACKPOINT)
 		return;
 
 	dispatch->rotation.config.is_available = fallback_rotation_config_is_available;

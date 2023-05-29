@@ -22,7 +22,6 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-
 #pragma once
 
 #include "config.h"
@@ -132,6 +131,18 @@ static inline void
 matrix_mult_vec(const struct matrix *m, int *x, int *y)
 {
 	int tx, ty;
+
+	tx = *x * m->val[0][0] + *y * m->val[0][1] + m->val[0][2];
+	ty = *x * m->val[1][0] + *y * m->val[1][1] + m->val[1][2];
+
+	*x = tx;
+	*y = ty;
+}
+
+static inline void
+matrix_mult_vec_double(const struct matrix *m, double *x, double *y)
+{
+	double tx, ty;
 
 	tx = *x * m->val[0][0] + *y * m->val[0][1] + m->val[0][2];
 	ty = *x * m->val[1][0] + *y * m->val[1][1] + m->val[1][2];

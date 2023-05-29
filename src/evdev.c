@@ -862,7 +862,6 @@ evdev_scroll_get_default_button_lock(struct libinput_device *device)
 	return LIBINPUT_CONFIG_SCROLL_BUTTON_LOCK_DISABLED;
 }
 
-
 void
 evdev_set_button_scroll_lock_enabled(struct evdev_device *device,
 				     bool enabled)
@@ -1188,7 +1187,9 @@ evdev_init_accel(struct evdev_device *device,
 {
 	struct motion_filter *filter = NULL;
 
-	if (device->tags & EVDEV_TAG_TRACKPOINT) {
+	if (which == LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM)
+		filter = create_custom_accelerator_filter();
+	else if (device->tags & EVDEV_TAG_TRACKPOINT) {
 		if (which == LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT)
 			filter = create_pointer_accelerator_filter_trackpoint_flat(device->trackpoint_multiplier);
 		else
@@ -1256,7 +1257,8 @@ evdev_accel_config_get_profiles(struct libinput_device *libinput_device)
 		return LIBINPUT_CONFIG_ACCEL_PROFILE_NONE;
 
 	return LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE |
-		LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT;
+	       LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT |
+	       LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM;
 }
 
 static enum libinput_config_status
@@ -1305,6 +1307,20 @@ evdev_accel_config_get_default_profile(struct libinput_device *libinput_device)
 	return LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 }
 
+static enum libinput_config_status
+evdev_set_accel_config(struct libinput_device *libinput_device,
+		       struct libinput_config_accel *accel_config)
+{
+	assert(evdev_accel_config_get_profile(libinput_device) == accel_config->profile);
+
+	struct evdev_device *dev = evdev_device(libinput_device);
+
+	if (!filter_set_accel_config(dev->pointer.filter, accel_config))
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+
+	return LIBINPUT_CONFIG_STATUS_SUCCESS;
+}
+
 void
 evdev_device_init_pointer_acceleration(struct evdev_device *device,
 				       struct motion_filter *filter)
@@ -1322,6 +1338,7 @@ evdev_device_init_pointer_acceleration(struct evdev_device *device,
 		device->pointer.config.set_profile = evdev_accel_config_set_profile;
 		device->pointer.config.get_profile = evdev_accel_config_get_profile;
 		device->pointer.config.get_default_profile = evdev_accel_config_get_default_profile;
+		device->pointer.config.set_accel_config = evdev_set_accel_config;
 		device->base.config.accel = &device->pointer.config;
 
 		default_speed = evdev_accel_config_get_default_speed(&device->base);
@@ -1899,7 +1916,6 @@ evdev_device_is_joystick_or_gamepad(struct evdev_device *device)
 	if (!has_joystick_tags)
 		return false;
 
-
 	unsigned int num_well_known_keys = 0;
 
 	for (size_t i = 0; i < ARRAY_LENGTH(well_known_keyboard_keys); i++) {
@@ -2058,8 +2074,10 @@ evdev_configure_device(struct evdev_device *device)
 	    udev_tags & EVDEV_UDEV_TAG_POINTINGSTICK) {
 		evdev_tag_external_mouse(device, device->udev_device);
 		evdev_tag_trackpoint(device, device->udev_device);
-		device->dpi = evdev_read_dpi_prop(device);
-		device->trackpoint_multiplier = evdev_get_trackpoint_multiplier(device);
+		if (device->tags & EVDEV_TAG_TRACKPOINT)
+			device->trackpoint_multiplier = evdev_get_trackpoint_multiplier(device);
+		else
+			device->dpi = evdev_read_dpi_prop(device);
 		/* whether velocity should be averaged, false by default */
 		device->use_velocity_averaging = evdev_need_velocity_averaging(device);
 
@@ -2233,8 +2251,6 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 	struct quirks_context *quirks;
 	struct quirks *q;
 	const struct quirk_tuples *t;
-	const uint32_t *props = NULL;
-	size_t nprops = 0;
 	char *prop;
 
 	/* Touchpad claims to have 4 slots but only ever sends 2
@@ -2253,7 +2269,7 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		libevdev_disable_event_code(device->evdev, EV_MSC, MSC_TIMESTAMP);
 	}
 
-	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_ENABLE, &t)) {
+	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE, &t)) {
 		for (size_t i = 0; i < t->ntuples; i++) {
 			const struct input_absinfo absinfo = {
 				.minimum = 0,
@@ -2262,16 +2278,27 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 
 			int type = t->tuples[i].first;
 			int code = t->tuples[i].second;
+			bool enable = t->tuples[i].third;
 
-			if (code == EVENT_CODE_UNDEFINED)
-				libevdev_enable_event_type(device->evdev, type);
-			else
-				libevdev_enable_event_code(device->evdev,
-							    type,
-							    code,
-							    type == EV_ABS ?  &absinfo : NULL);
+			if (code == EVENT_CODE_UNDEFINED) {
+				if (enable)
+					libevdev_enable_event_type(device->evdev, type);
+				else
+					libevdev_disable_event_type(device->evdev, type);
+			} else {
+				if (enable)
+					libevdev_enable_event_code(device->evdev,
+								   type,
+								   code,
+								   type == EV_ABS ?  &absinfo : NULL);
+				else
+					libevdev_disable_event_code(device->evdev,
+								    type,
+								    code);
+			}
 			evdev_log_debug(device,
-					"quirks: enabling %s %s (%#x %#x)\n",
+					"quirks: %s %s %s (%#x %#x)\n",
+					enable ? "enabling" : "disabling",
 					libevdev_event_type_get_name(type),
 					libevdev_event_code_get_name(type, code),
 					type,
@@ -2279,58 +2306,28 @@ evdev_pre_configure_model_quirks(struct evdev_device *device)
 		}
 	}
 
-	if (quirks_get_tuples(q, QUIRK_ATTR_EVENT_CODE_DISABLE, &t)) {
-		for (size_t i = 0; i < t->ntuples; i++) {
-			int type = t->tuples[i].first;
-			int code = t->tuples[i].second;
+	if (quirks_get_tuples(q, QUIRK_ATTR_INPUT_PROP, &t)) {
+		for (size_t idx = 0; idx < t->ntuples; idx++) {
+			unsigned int p = t->tuples[idx].first;
+			bool enable = t->tuples[idx].second;
 
-			if (code == EVENT_CODE_UNDEFINED)
-				libevdev_disable_event_type(device->evdev,
-							    type);
-			else
-				libevdev_disable_event_code(device->evdev,
-							    type,
-							    code);
-			evdev_log_debug(device,
-					"quirks: disabling %s %s (%#x %#x)\n",
-					libevdev_event_type_get_name(type),
-					libevdev_event_code_get_name(type, code),
-					type,
-					code);
-		}
-	}
-
-	if (quirks_get_uint32_array(q,
-				    QUIRK_ATTR_INPUT_PROP_ENABLE,
-				    &props,
-				    &nprops)) {
-		for (size_t idx = 0; idx < nprops; idx++) {
-			unsigned int p = props[idx];
-			libevdev_enable_property(device->evdev, p);
-			evdev_log_debug(device,
-					"quirks: enabling %s (%#x)\n",
-					libevdev_property_get_name(p),
-					p);
-		}
-	}
-
-	if (quirks_get_uint32_array(q,
-					 QUIRK_ATTR_INPUT_PROP_DISABLE,
-					 &props,
-					 &nprops)) {
+			if (enable) {
+				libevdev_enable_property(device->evdev, p);
+			}
+			else {
 #if HAVE_LIBEVDEV_DISABLE_PROPERTY
-		for (size_t idx = 0; idx < nprops; idx++) {
-			unsigned int p = props[idx];
-			libevdev_disable_property(device->evdev, p);
+				libevdev_disable_property(device->evdev, p);
+#else
+				evdev_log_error(device,
+						"quirks: a quirk for this device requires newer libevdev than installed\n");
+#endif
+			}
 			evdev_log_debug(device,
-					"quirks: disabling %s (%#x)\n",
+					"quirks: %s %s (%#x)\n",
+					enable ? "enabling" : "disabling",
 					libevdev_property_get_name(p),
 					p);
 		}
-#else
-		evdev_log_error(device,
-				"quirks: a quirk for this device requires newer libevdev than installed\n");
-#endif
 	}
 
 	quirks_unref(q);

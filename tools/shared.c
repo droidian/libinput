@@ -114,6 +114,12 @@ tools_init_options(struct tools_options *options)
 	options->scroll_button_lock = -1;
 	options->speed = 0.0;
 	options->profile = LIBINPUT_CONFIG_ACCEL_PROFILE_NONE;
+	/* initialize accel args */
+	static double points[] = {0.0, 1.0};
+	options->custom_points = points;
+	options->custom_npoints = ARRAY_LENGTH(points);
+	options->custom_type = LIBINPUT_ACCEL_TYPE_FALLBACK;
+	options->custom_step = 1.0;
 }
 
 int
@@ -252,6 +258,8 @@ tools_parse_option(int option,
 			options->profile = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE;
 		else if (streq(optarg, "flat"))
 		      options->profile = LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT;
+		else if (streq(optarg, "custom"))
+		      options->profile = LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM;
 		else
 		      return 1;
 		break;
@@ -273,8 +281,41 @@ tools_parse_option(int option,
 			 "%s",
 			 optarg);
 		break;
+	case OPT_CUSTOM_POINTS:
+		if (!optarg)
+			return 1;
+		options->custom_points = double_array_from_string(optarg,
+								  ";",
+								  &options->custom_npoints);
+		if (!options->custom_points || options->custom_npoints < 2) {
+			fprintf(stderr,
+				"Invalid --set-custom-points\n"
+				"Please provide at least 2 points separated by a semicolon\n"
+				" e.g. --set-custom-points=\"1.0;1.5\"\n");
+			return 1;
+		}
+		break;
+	case OPT_CUSTOM_STEP:
+		if (!optarg)
+			return 1;
+		options->custom_step = strtod(optarg, NULL);
+		break;
+	case OPT_CUSTOM_TYPE:
+		if (!optarg)
+			return 1;
+		if (streq(optarg, "fallback"))
+			options->custom_type = LIBINPUT_ACCEL_TYPE_FALLBACK;
+		else if (streq(optarg, "motion"))
+			options->custom_type = LIBINPUT_ACCEL_TYPE_MOTION;
+		else if (streq(optarg, "scroll"))
+			options->custom_type = LIBINPUT_ACCEL_TYPE_SCROLL;
+		else {
+			fprintf(stderr, "Invalid --set-custom-type\n"
+			                "Valid custom types: fallback|motion|scroll\n");
+			return 1;
+		}
+		break;
 	}
-
 	return 0;
 }
 
@@ -460,13 +501,24 @@ tools_device_apply_config(struct libinput_device *device,
 		libinput_device_config_scroll_set_button_lock(device,
 							      options->scroll_button_lock);
 
-
 	if (libinput_device_config_accel_is_available(device)) {
 		libinput_device_config_accel_set_speed(device,
 						       options->speed);
 		if (options->profile != LIBINPUT_CONFIG_ACCEL_PROFILE_NONE)
 			libinput_device_config_accel_set_profile(device,
 								 options->profile);
+	}
+
+	if (options->profile == LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM) {
+		struct libinput_config_accel *config =
+			libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+		libinput_config_accel_set_points(config,
+						 options->custom_type,
+						 options->custom_step,
+						 options->custom_npoints,
+						 options->custom_points);
+		libinput_device_config_accel_apply(device, config);
+		libinput_config_accel_destroy(config);
 	}
 }
 
@@ -633,11 +685,13 @@ sprintf_event_codes(char *buf, size_t sz, struct quirks *quirks, enum quirk q)
 	off += printed;
 
 	for (size_t i = 0; off < sz && i < t->ntuples; i++) {
-		const char *name = libevdev_event_code_get_name(
-						t->tuples[i].first,
-						t->tuples[i].second);
+		unsigned int type = t->tuples[i].first;
+		unsigned int code = t->tuples[i].second;
+		bool enable = t->tuples[i].third;
 
-		printed = snprintf(buf + off, sz - off, "%s;", name);
+		const char *name = libevdev_event_code_get_name(type, code);
+
+		printed = snprintf(buf + off, sz - off, "%c%s;", enable ? '+' : '-', name);
 		assert(printed != -1);
 		off += printed;
 	}
@@ -646,21 +700,24 @@ sprintf_event_codes(char *buf, size_t sz, struct quirks *quirks, enum quirk q)
 static void
 sprintf_input_props(char *buf, size_t sz, struct quirks *quirks, enum quirk q)
 {
-	const uint32_t *properties;
-	size_t nprops = 0;
+	const struct quirk_tuples *t;
 	size_t off = 0;
 	int printed;
 	const char *name;
 
-	quirks_get_uint32_array(quirks, q, &properties, &nprops);
+	quirks_get_tuples(quirks, q, &t);
 	name = quirk_get_name(q);
 	printed = snprintf(buf, sz, "%s=", name);
 	assert(printed != -1);
 	off += printed;
 
-	for (size_t i = 0; off < sz && i < nprops; i++) {
-		const char *name = libevdev_property_get_name(properties[i]);
-		printed = snprintf(buf + off, sz - off, "%s;", name);
+	for (size_t i = 0; off < sz && i < t->ntuples; i++) {
+		unsigned int prop = t->tuples[i].first;
+		bool enable = t->tuples[i].second;
+
+		const char *name = libevdev_property_get_name(prop);
+
+		printed = snprintf(buf + off, sz - off, "%c%s;", enable ? '+' : '-', name);
 		assert(printed != -1);
 		off += printed;
 	}
@@ -748,13 +805,11 @@ tools_list_device_quirks(struct quirks_context *ctx,
 				snprintf(buf, sizeof(buf), "%s=%d", name, b);
 				callback(userdata, buf);
 				break;
-			case QUIRK_ATTR_EVENT_CODE_DISABLE:
-			case QUIRK_ATTR_EVENT_CODE_ENABLE:
+			case QUIRK_ATTR_EVENT_CODE:
 				sprintf_event_codes(buf, sizeof(buf), quirks, q);
 				callback(userdata, buf);
 				break;
-			case QUIRK_ATTR_INPUT_PROP_DISABLE:
-			case QUIRK_ATTR_INPUT_PROP_ENABLE:
+			case QUIRK_ATTR_INPUT_PROP:
 				sprintf_input_props(buf, sizeof(buf), quirks, q);
 				callback(userdata, buf);
 				break;

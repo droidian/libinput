@@ -147,6 +147,10 @@ ModelBouncingKeys
     timestamps can not be relied upon.
 ModelSynapticsSerialTouchpad
     Reserved for touchpads made by Synaptics on the serial bus
+ModelPressurePad
+    Unlike in traditional touchpads, whose pressure value equals contact size,
+    on pressure pads pressure is a real physical axis.
+    Indicates that the device is a pressure pad.
 AttrSizeHint=NxM, AttrResolutionHint=N
     Hints at the width x height of the device in mm, or the resolution
     of the x/y axis in units/mm. These may only be used where they apply to
@@ -174,19 +178,14 @@ AttrTPKComboLayout=below
     Indicates the position of the touchpad on an external touchpad+keyboard
     combination device. This is a string enum. Don't specify it unless the
     touchpad is below.
-AttrEventCodeDisable=EV_ABS;BTN_STYLUS;EV_KEY:0x123;
-    Disables the evdev event type/code tuples on the device. Entries may be
+AttrEventCode=+EV_ABS;-BTN_STYLUS;+EV_KEY:0x123;
+    Enables or disables the evdev event type/code tuples on the device. The prefix
+    for each entry is either '+' (enable) or '-' (disable). Entries may be
     a named event type, or a named event code, or a named event type with a
     hexadecimal event code, separated by a single colon.
-AttrEventCodeEnable=EV_ABS;BTN_STYLUS;EV_KEY:0x123;
-    Enables the evdev event type/code tuples on the device. Entries may be
-    a named event type, or a named event code, or a named event type with a
-    hexadecimal event code, separated by a single colon.
-AttrInputPropDisable=INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER;
-    Disables the evdev input property on the device. Entries may be
-    a named input property or the hexadecimal value of that property.
-AttrInputPropEnable=INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER;
-    Enables the evdev input property on the device. Entries may be
+AttrInputProp=+INPUT_PROP_BUTTONPAD;-INPUT_PROP_POINTER;
+    Enables or disables the evdev input property on the device. The prefix
+    for each entry is either '+' (enable) or '-' (disable). Entries may be
     a named input property or the hexadecimal value of that property.
 AttrPointingStickIntegration=internal|external
     Indicates the integration of the pointing stick. This is a string enum.

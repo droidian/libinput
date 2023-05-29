@@ -36,7 +36,7 @@
 # <distribution>:<version>@activity:
 #  e.g. fedora:31@build-default
 
-.templates_sha: &template_sha 25459a8d343961918a7398e4b3c147e450926569
+.templates_sha: &template_sha 9f0eb526291fe74651fe1430cbd2397f4c0a819b
 
 include:
   - project: 'freedesktop/ci-templates'
@@ -47,6 +47,11 @@ include:
       # {{ distro.name.capitalize() }} container builder template
       - '/templates/{{distro.name}}.yml'
   {% endfor %}
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_PIPELINE_SOURCE == 'push'
 
 stages:
   - sanity check     # CI/commit checks
@@ -160,7 +165,7 @@ check-commit:
     - .fdo.ci-fairy
   stage: sanity check
   script:
-    - ci-fairy check-commits --signed-off-by --junit-xml=results.xml && exit 0 || true
+    - ci-fairy -vv check-commits --signed-off-by --junit-xml=results.xml && exit 0 || true
     - >
       printf "%s\n" \
         "Error checking commit format. Please verify" \
@@ -174,16 +179,35 @@ check-commit:
     reports:
       junit: results.xml
 
+
+#
+# Check for trailing whitespaces
+#
+
+check-whitespace:
+  extends:
+    - .fdo.ci-fairy
+  stage: sanity check
+  script:
+    # remove trailing whitespaces
+    - sed -i 's/ *$//' $(git ls-files)
+    - git diff --exit-code || (echo "ERROR - Trailing whitespaces in patchset, please fix" && false)
+    - sed -i 's/\t*$//' $(git ls-files)
+    - git diff --exit-code || (echo "ERROR - Trailing tabs in patchset, please fix" && false)
+    # search for tab after space
+    - sed -i 's/ \t//' $(git ls-files)
+    - git diff --exit-code || (echo "ERROR - Tab after space in patchset, please fix" && false)
+    # search for duplicated empty lines
+    - sed -i '/^$/N;/^\n$/D' $(git ls-files src/*.{h,c} tools/*.{h,c} udev/*.c)
+    - git diff --exit-code || (echo "ERROR - Duplicated empty lines, please fix" && false)
+
+
 #################################################################
 #                                                               #
 #                          prep stage                           #
 #                                                               #
 #################################################################
 
-#
-# Note: images are rebuilt weekly with a scheduled pipeline with FDO_FORCE_REBUILD set
-#
-#
 {% for distro in distributions %}
 {% for version in distro.versions %}
 {{distro.name}}:{{version}}@container-prep:
@@ -309,7 +333,6 @@ check-commit:
 .build-in-qemu@template:
   extends:
     - .policy
-    - .fdo.distribution-image@fedora
   tags:
     - kvm
   variables:
@@ -715,4 +738,3 @@ wayland-web:
       - main
     variables:
       - $CI_PROJECT_PATH == "libinput/libinput"
-

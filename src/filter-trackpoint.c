@@ -146,7 +146,6 @@ trackpoint_accelerator_set_speed(struct motion_filter *filter,
 	filter->speed_adjustment = speed_adjustment;
 	accel_filter->speed_factor = speed_factor(speed_adjustment);
 
-
 	return true;
 }
 
@@ -175,6 +174,7 @@ static const struct motion_filter_interface accelerator_interface_trackpoint = {
 	.type = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE,
 	.filter = trackpoint_accelerator_filter,
 	.filter_constant = trackpoint_accelerator_filter_noop,
+	.filter_scroll = trackpoint_accelerator_filter_noop,
 	.restart = trackpoint_accelerator_restart,
 	.destroy = trackpoint_accelerator_destroy,
 	.set_speed = trackpoint_accelerator_set_speed,
@@ -184,7 +184,6 @@ struct motion_filter *
 create_pointer_accelerator_filter_trackpoint(double multiplier, bool use_velocity_averaging)
 {
 	struct trackpoint_accelerator *filter;
-	struct pointer_delta_smoothener *smoothener;
 
 	assert(multiplier > 0.0);
 
@@ -209,11 +208,7 @@ create_pointer_accelerator_filter_trackpoint(double multiplier, bool use_velocit
 	trackers_init(&filter->trackers, use_velocity_averaging ? 16 : 2);
 
 	filter->base.interface = &accelerator_interface_trackpoint;
-
-	smoothener = zalloc(sizeof(*smoothener));
-	smoothener->threshold = ms2us(10);
-	smoothener->value = ms2us(10);
-	filter->trackers.smoothener = smoothener;
+	filter->trackers.smoothener = pointer_delta_smoothener_create(ms2us(10), ms2us(10));
 
 	return &filter->base;
 }
