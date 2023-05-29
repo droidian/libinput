@@ -98,7 +98,7 @@ strv_from_argv(int argc, char **argv)
  * Another example:
  *   result = strv_from_string("+1-2++3--4++-+5-+-", "+-", &nelem)
  *   result == [ "1", "2", "3", "4", "5", NULL ] and nelem == 5
- * 
+ *
  * @param in Input string
  * @param separators List of separator characters
  * @param num_elements Number of elements found in the input string
@@ -110,7 +110,6 @@ strv_from_string(const char *in, const char *separators, size_t *num_elements)
 {
 	assert(in != NULL);
 
-	
 	const char *s = in;
 	size_t l, nelems = 0;
 	while (next_word(&s, &l, separators) != NULL)
@@ -137,7 +136,7 @@ strv_from_string(const char *in, const char *separators, size_t *num_elements)
 
 		strv[idx++] = copy;
 	}
-	
+
 	*num_elements = nelems;
 
 	return strv;
@@ -215,7 +214,6 @@ safe_basename(const char *filename)
 
 	return basename + 1;
 }
-
 
 /**
  * Similar to basename() but returns the trunk only without the (last)

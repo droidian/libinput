@@ -98,7 +98,7 @@ AttrTrackpointMultiplier=0.3
 MatchBus=i2c
 MatchUdevType=touchpad
 MatchDMIModalias=dmi:*svnDellInc.:pnPrecision7?50*
-AttrInputPropDisable=INPUT_PROP_BUTTONPAD
+AttrInputProp=-INPUT_PROP_BUTTONPAD
 
 # The touch device has the same vid/pid as the totem, the MatchName
 # directive is required here
@@ -109,9 +109,9 @@ MatchVendor=0x2575
 MatchProduct=0x0204
 ModelDellCanvasTotem=1
 
-[Dell Latitude 5290 2-in-1]
+[Dell 2-in-1 Models]
 MatchName=AT Translated Set 2 keyboard
-MatchDMIModalias=dmi:*:svnDellInc.:pnLatitude52902-in-1:*
+MatchDMIModalias=dmi:*:svnDellInc.:pn*2-in-1:*
 ModelTabletModeNoSuspend=1
 
 # This is a true pressurepad so disable pressure for contact size
@@ -120,4 +120,10 @@ ModelTabletModeNoSuspend=1
 MatchBus=i2c
 MatchVendor=0x27C6
 MatchProduct=0x0F60
-AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+ModelPressurePad=1
+
+[Dell Mayabay Touchpad]
+MatchBus=i2c
+MatchVendor=0x06CB
+MatchProduct=0xCFA0
+ModelPressurePad=1

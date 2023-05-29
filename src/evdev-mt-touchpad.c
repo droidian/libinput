@@ -93,6 +93,24 @@ tp_filter_motion_unaccelerated(struct tp_dispatch *tp,
 					&raw, tp, time);
 }
 
+struct normalized_coords
+tp_filter_scroll(struct tp_dispatch *tp,
+		 const struct device_float_coords *unaccelerated,
+		 uint64_t time)
+{
+	struct device_float_coords raw;
+	const struct normalized_coords zero = { 0.0, 0.0 };
+
+	if (device_float_is_zero(*unaccelerated))
+		return zero;
+
+	/* Convert to device units with x/y in the same resolution */
+	raw = tp_scale_to_xaxis(tp, *unaccelerated);
+
+	return filter_dispatch_scroll(tp->device->pointer.filter,
+				      &raw, tp, time);
+}
+
 static inline void
 tp_calculate_motion_speed(struct tp_dispatch *tp,
 			  struct tp_touch *t,
@@ -679,7 +697,6 @@ tp_process_fake_touches(struct tp_dispatch *tp,
 		tp->num_slots = tp->nactive_slots;
 	}
 
-
 	start = tp->has_mt ? tp->num_slots : 0;
 	for (i = start; i < tp->ntouches; i++) {
 		t = tp_get_touch(tp, i);
@@ -863,21 +880,6 @@ static inline bool
 tp_palm_in_edge(const struct tp_dispatch *tp, const struct tp_touch *t)
 {
 	return tp_palm_in_side_edge(tp, t) || tp_palm_in_top_edge(tp, t);
-}
-
-bool
-tp_palm_tap_is_palm(const struct tp_dispatch *tp, const struct tp_touch *t)
-{
-	if (t->state != TOUCH_BEGIN)
-		return false;
-
-	if (!tp_palm_in_edge(tp, t))
-		return false;
-
-	evdev_log_debug(tp->device,
-			"palm: touch %d: palm-tap detected\n",
-			t->index);
-	return true;
 }
 
 static bool
@@ -1080,13 +1082,6 @@ tp_palm_detect_edge(struct tp_dispatch *tp,
 	/* palm must start in exclusion zone, it's ok to move into
 	   the zone without being a palm */
 	if (t->state != TOUCH_BEGIN || !tp_palm_in_edge(tp, t))
-		return false;
-
-	/* don't detect palm in software button areas, it's
-	   likely that legitimate touches start in the area
-	   covered by the exclusion zone */
-	if (tp->buttons.is_clickpad &&
-	    tp_button_is_inside_softbutton_area(tp, t))
 		return false;
 
 	if (tp_touch_get_edge(tp, t) & EDGE_RIGHT)
@@ -2213,7 +2208,6 @@ tp_trackpoint_event(uint64_t time, struct libinput_event *event, void *data)
 	tp->palm.trackpoint_last_event_time = time;
 	tp->palm.trackpoint_event_count++;
 
-
 	/* Require at least three events before enabling palm detection */
 	if (tp->palm.trackpoint_event_count < 3) {
 		libinput_timer_set(&tp->palm.trackpoint_timer,
@@ -2990,18 +2984,26 @@ tp_init_accel(struct tp_dispatch *tp, enum libinput_config_accel_profile which)
 	tp->accel.y_scale_coeff = (DEFAULT_MOUSE_DPI/25.4) / res_y;
 	tp->accel.xy_scale_coeff = 1.0 * res_x/res_y;
 
-	if (which == LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT)
+	if (which == LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT) {
 		filter = create_pointer_accelerator_filter_touchpad_flat(dpi);
-	else if (evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_X230) ||
-		 tp->device->model_flags & EVDEV_MODEL_LENOVO_X220_TOUCHPAD_FW81)
+	} else if (which == LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM) {
+		filter = create_custom_accelerator_filter();
+	} else if (evdev_device_has_model_quirk(device, QUIRK_MODEL_LENOVO_X230) ||
+		 tp->device->model_flags & EVDEV_MODEL_LENOVO_X220_TOUCHPAD_FW81) {
 		filter = create_pointer_accelerator_filter_lenovo_x230(dpi, use_v_avg);
-	else if (libevdev_get_id_bustype(device->evdev) == BUS_BLUETOOTH)
+	} else {
+		uint64_t eds_threshold = 0;
+		uint64_t eds_value = 0;
+
+		if (libevdev_get_id_bustype(device->evdev) == BUS_BLUETOOTH) {
+			eds_threshold = ms2us(50);
+			eds_value = ms2us(10);
+		}
 		filter = create_pointer_accelerator_filter_touchpad(dpi,
-								    ms2us(50),
-								    ms2us(10),
+								    eds_threshold,
+								    eds_value,
 								    use_v_avg);
-	else
-		filter = create_pointer_accelerator_filter_touchpad(dpi, 0, 0, use_v_avg);
+	}
 
 	if (!filter)
 		return false;
@@ -3618,7 +3620,6 @@ tp_init_pressure(struct tp_dispatch *tp,
 		lo = abs->minimum + 0.10 * range;
 	}
 
-
 	if (hi > abs->maximum || hi < abs->minimum ||
 	    lo > abs->maximum || lo < abs->minimum) {
 		evdev_log_bug_libinput(device,
@@ -3705,7 +3706,8 @@ tp_init_pressurepad(struct tp_dispatch *tp,
 	 *
 	 * See also #562
 	 */
-	if (libevdev_get_abs_resolution(device->evdev, ABS_MT_PRESSURE) != 0) {
+	if (libevdev_get_abs_resolution(device->evdev, ABS_MT_PRESSURE) != 0 ||
+	    evdev_device_has_model_quirk(device, QUIRK_MODEL_PRESSURE_PAD)) {
 		libevdev_disable_event_code(device->evdev, EV_ABS, ABS_MT_PRESSURE);
 		libevdev_disable_event_code(device->evdev, EV_ABS, ABS_PRESSURE);
 	}
@@ -3730,7 +3732,6 @@ tp_init(struct tp_dispatch *tp,
 
 	if (!tp_init_slots(tp, device))
 		return false;
-
 
 	evdev_device_init_abs_range_warnings(device);
 	use_touch_size = tp_init_touch_size(tp, device);

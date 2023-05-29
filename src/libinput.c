@@ -4159,6 +4159,7 @@ libinput_device_config_accel_set_profile(struct libinput_device *device,
 	switch (profile) {
 	case LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT:
 	case LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE:
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM:
 		break;
 	default:
 		return LIBINPUT_CONFIG_STATUS_INVALID;
@@ -4169,6 +4170,133 @@ libinput_device_config_accel_set_profile(struct libinput_device *device,
 		return LIBINPUT_CONFIG_STATUS_UNSUPPORTED;
 
 	return device->config.accel->set_profile(device, profile);
+}
+
+static inline struct libinput_config_accel_custom_func *
+libinput_config_accel_custom_func_create(void)
+{
+	struct libinput_config_accel_custom_func *func = zalloc(sizeof(*func));
+
+	func->step = 1.0;
+	func->npoints = 2;
+	func->points[0] = 0.0; /* default to a flat unaccelerated function */
+	func->points[1] = 1.0;
+
+	return func;
+}
+
+static inline void
+libinput_config_accel_custom_func_destroy(struct libinput_config_accel_custom_func * func)
+{
+	free(func);
+}
+
+LIBINPUT_EXPORT struct libinput_config_accel *
+libinput_config_accel_create(enum libinput_config_accel_profile profile)
+{
+	struct libinput_config_accel *config = zalloc(sizeof(*config));
+
+	config->profile = profile;
+
+	switch (profile) {
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_NONE:
+		break;
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT:
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE:
+		return config;
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM:
+		config->custom.fallback = libinput_config_accel_custom_func_create();
+		return config;
+	}
+
+	free(config);
+	return NULL;
+}
+
+LIBINPUT_EXPORT void
+libinput_config_accel_destroy(struct libinput_config_accel *accel_config)
+{
+	libinput_config_accel_custom_func_destroy(accel_config->custom.fallback);
+	libinput_config_accel_custom_func_destroy(accel_config->custom.motion);
+	libinput_config_accel_custom_func_destroy(accel_config->custom.scroll);
+	free(accel_config);
+}
+
+LIBINPUT_EXPORT enum libinput_config_status
+libinput_device_config_accel_apply(struct libinput_device *device,
+				   struct libinput_config_accel *accel_config)
+{
+	enum libinput_config_status status;
+	status = libinput_device_config_accel_set_profile(device, accel_config->profile);
+	if (status != LIBINPUT_CONFIG_STATUS_SUCCESS)
+		return status;
+
+	switch (accel_config->profile) {
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT:
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE:
+	{
+		double speed = libinput_device_config_accel_get_default_speed(device);
+		return libinput_device_config_accel_set_speed(device, speed);
+	}
+	case LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM:
+		return device->config.accel->set_accel_config(device, accel_config);
+
+	default:
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+	}
+}
+
+LIBINPUT_EXPORT enum libinput_config_status
+libinput_config_accel_set_points(struct libinput_config_accel *config,
+				 enum libinput_config_accel_type accel_type,
+				 double step, size_t npoints, double *points)
+{
+	if (config->profile != LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM)
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+
+	switch (accel_type) {
+	case LIBINPUT_ACCEL_TYPE_FALLBACK:
+	case LIBINPUT_ACCEL_TYPE_MOTION:
+	case LIBINPUT_ACCEL_TYPE_SCROLL:
+		break;
+	default:
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+	}
+
+	if (step <= 0 || step > LIBINPUT_ACCEL_STEP_MAX)
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+
+	if (npoints < LIBINPUT_ACCEL_NPOINTS_MIN || npoints > LIBINPUT_ACCEL_NPOINTS_MAX)
+		return LIBINPUT_CONFIG_STATUS_INVALID;
+
+	for (size_t idx = 0; idx < npoints; idx++) {
+		if (points[idx] < LIBINPUT_ACCEL_POINT_MIN_VALUE ||
+		    points[idx] > LIBINPUT_ACCEL_POINT_MAX_VALUE)
+			return LIBINPUT_CONFIG_STATUS_INVALID;
+	}
+
+	struct libinput_config_accel_custom_func *func = libinput_config_accel_custom_func_create();
+
+	func->step = step;
+	func->npoints = npoints;
+	memcpy(func->points, points, sizeof(*points) * npoints);
+
+	switch (accel_type) {
+	case LIBINPUT_ACCEL_TYPE_FALLBACK:
+		libinput_config_accel_custom_func_destroy(config->custom.fallback);
+		config->custom.fallback = func;
+		break;
+	case LIBINPUT_ACCEL_TYPE_MOTION:
+		libinput_config_accel_custom_func_destroy(config->custom.motion);
+		config->custom.motion = func;
+		break;
+	case LIBINPUT_ACCEL_TYPE_SCROLL:
+		libinput_config_accel_custom_func_destroy(config->custom.scroll);
+		config->custom.scroll = func;
+		break;
+	}
+
+	return LIBINPUT_CONFIG_STATUS_SUCCESS;
 }
 
 LIBINPUT_EXPORT int
@@ -4576,7 +4704,7 @@ libinput_device_config_rotation_set_angle(struct libinput_device *device,
 		return degrees_cw ? LIBINPUT_CONFIG_STATUS_UNSUPPORTED :
 				    LIBINPUT_CONFIG_STATUS_SUCCESS;
 
-	if (degrees_cw >= 360 || degrees_cw % 90)
+	if (degrees_cw >= 360)
 		return LIBINPUT_CONFIG_STATUS_INVALID;
 
 	return device->config.rotation->set_angle(device, degrees_cw);

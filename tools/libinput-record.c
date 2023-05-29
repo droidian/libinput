@@ -965,7 +965,6 @@ print_tablet_tool_button_event(struct record_device *dev,
 		abort();
 	}
 
-
 	button = libinput_event_tablet_tool_get_button(t);
 	state = libinput_event_tablet_tool_get_button_state(t);
 	time = time_offset(dev->ctx, libinput_event_tablet_tool_get_time_usec(t));
@@ -1070,7 +1069,6 @@ print_tablet_pad_button_event(struct record_device *dev,
 		mode,
 		libinput_tablet_pad_mode_group_button_is_toggle(group, button) ? "true" : "false"
 	       );
-
 
 }
 
@@ -1784,9 +1782,13 @@ print_device_quirks(struct record_device *dev)
 				       QLOG_CUSTOM_LOG_PRIORITIES);
 	if (!quirks) {
 		fprintf(stderr,
-			"Failed to initialize the device quirks. "
-			"Please see the above errors "
-			"and/or re-run with --verbose for more details\n");
+			"Failed to load the device quirks from %s%s%s. "
+			"This will negatively affect device behavior. "
+			"See %s/device-quirks.html for details.\n",
+			data_path,
+			override_file ? " and " : "",
+			override_file ? override_file : "",
+			HTTP_DOC_LINK);
 		return;
 	}
 
@@ -2440,7 +2442,7 @@ static void close_restricted(int fd, void *user_data)
 	close(fd);
 }
 
-const struct libinput_interface interface = {
+static const struct libinput_interface interface = {
 	.open_restricted = open_restricted,
 	.close_restricted = close_restricted,
 };

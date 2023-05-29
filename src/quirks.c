@@ -175,6 +175,10 @@ struct quirks {
 	/* These are not ref'd, just a collection of pointers */
 	struct property **properties;
 	size_t nproperties;
+
+	/* Special properties for AttrEventCode and AttrInputCode, these are
+	 * owned by us, not the section */
+	struct list floating_properties;
 };
 
 /**
@@ -265,6 +269,7 @@ quirk_get_name(enum quirk q)
 	case QUIRK_MODEL_TOUCHPAD_VISIBLE_MARKER:	return "ModelTouchpadVisibleMarker";
 	case QUIRK_MODEL_TRACKBALL:			return "ModelTrackball";
 	case QUIRK_MODEL_WACOM_TOUCHPAD:		return "ModelWacomTouchpad";
+	case QUIRK_MODEL_PRESSURE_PAD:			return "ModelPressurePad";
 
 	case QUIRK_ATTR_SIZE_HINT:			return "AttrSizeHint";
 	case QUIRK_ATTR_TOUCH_SIZE_RANGE:		return "AttrTouchSizeRange";
@@ -282,10 +287,8 @@ quirk_get_name(enum quirk q)
 	case QUIRK_ATTR_TABLET_SMOOTHING:               return "AttrTabletSmoothing";
 	case QUIRK_ATTR_THUMB_SIZE_THRESHOLD:		return "AttrThumbSizeThreshold";
 	case QUIRK_ATTR_MSC_TIMESTAMP:			return "AttrMscTimestamp";
-	case QUIRK_ATTR_EVENT_CODE_DISABLE:		return "AttrEventCodeDisable";
-	case QUIRK_ATTR_EVENT_CODE_ENABLE:		return "AttrEventCodeEnable";
-	case QUIRK_ATTR_INPUT_PROP_DISABLE:		return "AttrInputPropDisable";
-	case QUIRK_ATTR_INPUT_PROP_ENABLE:		return "AttrInputPropEnable";
+	case QUIRK_ATTR_EVENT_CODE:			return "AttrEventCode";
+	case QUIRK_ATTR_INPUT_PROP:			return "AttrInputProp";
 	default:
 		abort();
 	}
@@ -817,14 +820,11 @@ parse_attr(struct quirks_context *ctx,
 		p->type = PT_STRING;
 		p->value.s = safe_strdup(value);
 		rc = true;
-	} else if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_DISABLE)) ||
-		   streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_ENABLE))) {
+	} else if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE))) {
 		struct input_event events[32];
 		size_t nevents = ARRAY_LENGTH(events);
-		if (streq(key, quirk_get_name(QUIRK_ATTR_EVENT_CODE_DISABLE)))
-		    p->id = QUIRK_ATTR_EVENT_CODE_DISABLE;
-		else
-		    p->id = QUIRK_ATTR_EVENT_CODE_ENABLE;
+
+		p->id = QUIRK_ATTR_EVENT_CODE;
 
 		if (!parse_evcode_property(value, events, &nevents) ||
 		    nevents == 0)
@@ -833,27 +833,29 @@ parse_attr(struct quirks_context *ctx,
 		for (size_t i = 0; i < nevents; i++) {
 			p->value.tuples.tuples[i].first = events[i].type;
 			p->value.tuples.tuples[i].second = events[i].code;
+			p->value.tuples.tuples[i].third = events[i].value;
 		}
 		p->value.tuples.ntuples = nevents;
 		p->type = PT_TUPLES;
 
 		rc = true;
-	} else if (streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_DISABLE)) ||
-		   streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_ENABLE))) {
-		unsigned int props[INPUT_PROP_CNT];
+	} else if (streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP))) {
+		struct input_prop props[INPUT_PROP_CNT];
 		size_t nprops = ARRAY_LENGTH(props);
-		if (streq(key, quirk_get_name(QUIRK_ATTR_INPUT_PROP_DISABLE)))
-			p->id = QUIRK_ATTR_INPUT_PROP_DISABLE;
-		else
-			p->id = QUIRK_ATTR_INPUT_PROP_ENABLE;
+
+		p->id = QUIRK_ATTR_INPUT_PROP;
 
 		if (!parse_input_prop_property(value, props, &nprops) ||
 		    nprops == 0)
 			goto out;
 
-		memcpy(p->value.array.data.u, props, nprops * sizeof(unsigned int));
-		p->value.array.nelements = nprops;
-		p->type = PT_UINT_ARRAY;
+		for (size_t i = 0; i < nprops; i++) {
+			p->value.tuples.tuples[i].first = props[i].prop;
+			p->value.tuples.tuples[i].second = props[i].enabled;
+		}
+
+		p->value.tuples.ntuples = nprops;
+		p->type = PT_TUPLES;
 
 		rc = true;
 	} else {
@@ -880,7 +882,7 @@ static bool
 parse_value_line(struct quirks_context *ctx, struct section *s, const char *line)
 {
 	bool rc = false;
-	
+
 	size_t nelem;
 	char **strv = strv_from_string(line, "=", &nelem);
 	if (!strv || nelem != 2)
@@ -1201,6 +1203,7 @@ quirks_new(void)
 	q->refcount = 1;
 	q->nproperties = 0;
 	list_init(&q->link);
+	list_init(&q->floating_properties);
 
 	return q;
 }
@@ -1217,6 +1220,13 @@ quirks_unref(struct quirks *q)
 
 	for (size_t i = 0; i < q->nproperties; i++) {
 		property_unref(q->properties[i]);
+	}
+
+	/* Floating properties are owned by our quirks context, need to be
+	 * cleaned up here */
+	struct property *p;
+	list_for_each_safe(p, &q->floating_properties, link) {
+		property_cleanup(p);
 	}
 
 	list_remove(&q->link);
@@ -1379,6 +1389,41 @@ match_free(struct match *m)
 }
 
 static void
+quirk_merge_event_codes(struct quirks_context *ctx,
+			struct quirks *q,
+			const struct property *property)
+{
+	for (size_t i = 0; i < q->nproperties; i++) {
+		struct property *p = q->properties[i];
+
+		if (p->id != property->id)
+			continue;
+
+		/* We have a duplicated property, merge in with ours */
+		size_t offset = p->value.tuples.ntuples;
+		size_t max = ARRAY_LENGTH(p->value.tuples.tuples);
+		for (size_t j = 0; j < property->value.tuples.ntuples; j++) {
+			if (offset + j >= max)
+				break;
+			p->value.tuples.tuples[offset + j] = property->value.tuples.tuples[j];
+			p->value.tuples.ntuples++;
+		}
+		return;
+	}
+
+	/* First time we add AttrEventCode: create a new property.
+	 * Unlike the other properties, this one isn't part of a section, it belongs
+	 * to the quirks */
+	struct property *newprop = property_new();
+	newprop->id = property->id;
+	newprop->type = property->type;
+	newprop->value.tuples = property->value.tuples;
+	/* Caller responsible for pre-allocating space */
+	q->properties[q->nproperties++] = property_ref(newprop);
+	list_append(&q->floating_properties, &newprop->link);
+}
+
+static void
 quirk_apply_section(struct quirks_context *ctx,
 		    struct quirks *q,
 		    const struct section *s)
@@ -1401,7 +1446,26 @@ quirk_apply_section(struct quirks_context *ctx,
 		qlog_debug(ctx, "property added: %s from %s\n",
 			   quirk_get_name(p->id), s->name);
 
-		q->properties[q->nproperties++] = property_ref(p);
+		/* All quirks but AttrEventCode and AttrInputProp
+		 * simply overwrite each other, so we can just append the
+		 * matching property and, later when checking the quirk, pick
+		 * the last one in the array.
+		 *
+		 * The event codes/input props are special because they're lists
+		 * that may *partially* override each other, e.g. a section may
+		 * enable BTN_LEFT and BTN_RIGHT but a later section may disable
+		 * only BTN_RIGHT. This should result in BTN_LEFT force-enabled
+		 * and BTN_RIGHT force-disabled.
+		 *
+		 * To hack around this, those are the only ones where only ever
+		 * have one struct property in the list (not owned by a section)
+		 * and we simply merge any extra sections onto that.
+		 */
+		if (p->id == QUIRK_ATTR_EVENT_CODE ||
+		    p->id == QUIRK_ATTR_INPUT_PROP)
+			quirk_merge_event_codes(ctx, q, p);
+		else
+			q->properties[q->nproperties++] = property_ref(p);
 	}
 }
 
@@ -1516,7 +1580,6 @@ quirks_fetch_for_device(struct quirks_context *ctx,
 
 	return q;
 }
-
 
 static inline struct property *
 quirk_find_prop(struct quirks *q, enum quirk which)

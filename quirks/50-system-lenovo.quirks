@@ -41,18 +41,24 @@ AttrTrackpointMultiplier=0.4
 [Lenovo T480s Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT480s*
-AttrInputPropEnable=INPUT_PROP_BUTTONPAD
+AttrInputProp=+INPUT_PROP_BUTTONPAD
 
 # Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
 # https://gitlab.freedesktop.org/libinput/libinput/issues/177
 [Lenovo T490s Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT490s*
-AttrInputPropEnable=INPUT_PROP_BUTTONPAD
+AttrInputProp=+INPUT_PROP_BUTTONPAD
 
 [Lenovo T490s Trackpoint]
 MatchName=*TPPS/2 IBM TrackPoint
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadT490s:*
+AttrTrackpointMultiplier=0.4
+
+[Lenovo P14s Gen 1 AMD Trackpoint]
+MatchUdevType=pointingstick
+MatchName=*TPPS/2 Elan TrackPoint*
+MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadP14sGen1*
 AttrTrackpointMultiplier=0.4
 
 # Touchpad is a clickpad but INPUT_PROP_BUTTONPAD is not set, see
@@ -60,7 +66,7 @@ AttrTrackpointMultiplier=0.4
 [Lenovo L380 Touchpad]
 MatchName=Elan Touchpad
 MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadL380*
-AttrInputPropEnable=INPUT_PROP_BUTTONPAD
+AttrInputProp=+INPUT_PROP_BUTTONPAD
 
 [Lenovo X200 Trackpoint]
 MatchName=*TPPS/2 IBM TrackPoint
@@ -76,6 +82,16 @@ AttrTrackpointMultiplier=1.25
 MatchName=*TPPS/2 IBM TrackPoint
 MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX230:*
 AttrTrackpointMultiplier=0.25
+
+[Lenovo X280 Trackpoint]
+MatchName=*TPPS/2 Elan TrackPoint
+MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX280:*
+AttrTrackpointMultiplier=0.5
+
+[Lenovo X280 Touchpad]
+MatchName=Synaptics TM3381-002
+MatchDMIModalias=dmi:*svnLENOVO:*:pvrThinkPadX280*
+AttrPalmSizeThreshold=6
 
 [Lenovo P50 Touchpad]
 MatchName=SynPS/2 Synaptics TouchPad
@@ -147,7 +163,7 @@ AttrTrackpointMultiplier=1.25
 MatchBus=i2c
 MatchVendor=0x06CB
 MatchProduct=0xCE37
-AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+ModelPressurePad=1
 
 [Lenovo Yoga C930 Tablet]
 MatchBus=i2c
@@ -160,7 +176,7 @@ AttrTabletSmoothing=1
 [Lenovo Carbon X1 6th gen]
 MatchName=Synaptics TM3288-011
 MatchDMIModalias=dmi:*svnLENOVO:*pvrThinkPadX1Carbon6th:*
-AttrEventCodeDisable=ABS_MT_TOOL_TYPE
+AttrEventCode=-ABS_MT_TOOL_TYPE
 ModelLenovoX1Gen6Touchpad=1
 
 [Lenovo X41 Tablet]
@@ -224,14 +240,14 @@ ModelTabletModeNoSuspend=1
 
 # Misidentified as an external keyboard by libinput
 # Tested on Legion 5 15AR05H
-[Lenovo Legion 5 Keyboard]
+[Lenovo Legion 5 Keyboard (C100)]
 MatchUdevType=keyboard
 MatchBus=usb
 MatchVendor=0x048D
 MatchProduct=0xC100
 AttrKeyboardIntegration=internal
 
-[Lenovo Legion 5 Keyboard]
+[Lenovo Legion 5 Keyboard (C955)]
 MatchUdevType=keyboard
 MatchBus=usb
 MatchVendor=0x048D
@@ -244,6 +260,11 @@ MatchUdevType=keyboard
 MatchBus=usb
 MatchVendor=0x048D
 MatchProduct=0xC101
+AttrKeyboardIntegration=internal
+
+[Lenovo Legion 5i Keyboard]
+MatchName=ITE Tech. Inc. ITE Device(8910) Keyboard
+MatchDMIModalias=dmi:*svnLENOVO:*pvrLegion515IAH7H:*
 AttrKeyboardIntegration=internal
 
 [Lenovo Legion 7 Keyboard]
@@ -272,7 +293,7 @@ AttrKeyboardIntegration=internal
 MatchBus=i2c
 MatchVendor=0x27C6
 MatchProduct=0x01E8
-AttrEventCodeDisable=ABS_MT_PRESSURE;ABS_PRESSURE;
+ModelPressurePad=1
 
 # Duet 7i tablet switch activated by folding keyboard cover, or removing it.
 # We must not disable volume rocker 'keyboard'.
