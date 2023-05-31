@@ -1,8 +1,9 @@
-libinput (1.23.0-1) UNRELEASED; urgency=medium
+libinput (1.23.0-1) unstable; urgency=medium
 
   * New upstream release v1.23.0
+  * Update symbols to match upstream release
 
- -- Marius Gripsgard <marius@ubports.com>  Tue, 30 May 2023 01:53:15 +0200
+ -- Marius Gripsgard <marius@ubports.com>  Wed, 31 May 2023 17:46:49 +0200
 
 libinput (1.22.1-1) unstable; urgency=medium
 
