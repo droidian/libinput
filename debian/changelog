@@ -1,3 +1,14 @@
+libinput (1.23.0-2) unstable; urgency=medium
+
+  * debian/control:
+    + Update standards version to 4.6.2, no changes needed.
+    + Add myself to uploaders
+  * doc/html is no longer included in source tarball, drop exclude
+    of non existing doc/html path
+  * Upstream no longer sign releases, drop signing-key
+
+ -- Marius Gripsgard <marius@ubports.com>  Wed, 14 Jun 2023 02:30:14 +0200
+
 libinput (1.23.0-1) unstable; urgency=medium
 
   * New upstream release v1.23.0
