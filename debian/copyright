@@ -3,8 +3,6 @@ Upstream-Name: libinput
 Upstream-Contact: Jonas Ådahl <jadahl@gmail.com>
                   Peter Hutterer <peter.hutterer@who-t.net>
 Source: http://www.freedesktop.org/software/libinput/
-Files-Excluded:
- doc/html
 
 Files: *
 Copyright: Copyright © 2006-2009 Simon Thum
