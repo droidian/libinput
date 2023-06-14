@@ -2,7 +2,9 @@ Source: libinput
 Section: libs
 Priority: optional
 Maintainer: Debian X Strike Force <debian-x@lists.debian.org>
-Uploaders: Emilio Pozuelo Monfort <pochu@debian.org>, Héctor Orón Martínez <zumbi@debian.org>
+Uploaders: Emilio Pozuelo Monfort <pochu@debian.org>,
+           Héctor Orón Martínez <zumbi@debian.org>,
+           Marius Gripsgard <marius@ubports.com>
 Build-Depends:
  debhelper-compat (= 13),
  meson,
