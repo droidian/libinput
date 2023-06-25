@@ -38,17 +38,23 @@ struct motion_filter_interface {
 			   struct motion_filter *filter,
 			   const struct device_float_coords *unaccelerated,
 			   void *data, uint64_t time);
+	struct normalized_coords (*filter_scroll)(
+			   struct motion_filter *filter,
+			   const struct device_float_coords *unaccelerated,
+			   void *data, uint64_t time);
 	void (*restart)(struct motion_filter *filter,
 			void *data,
 			uint64_t time);
 	void (*destroy)(struct motion_filter *filter);
 	bool (*set_speed)(struct motion_filter *filter,
 			  double speed_adjustment);
+	bool (*set_accel_config)(struct motion_filter *filter,
+				 struct libinput_config_accel *accel_config);
 };
 
 struct motion_filter {
 	double speed_adjustment; /* normalized [-1, 1] */
-	struct motion_filter_interface *interface;
+	const struct motion_filter_interface *interface;
 };
 
 struct pointer_tracker {
@@ -62,6 +68,22 @@ struct pointer_delta_smoothener {
 	uint64_t threshold;
 	uint64_t value;
 };
+
+static inline struct pointer_delta_smoothener *
+pointer_delta_smoothener_create(uint64_t event_delta_smooth_threshold,
+				uint64_t event_delta_smooth_value)
+{
+	struct pointer_delta_smoothener *s = zalloc(sizeof(*s));
+	s->threshold = event_delta_smooth_threshold;
+	s->value = event_delta_smooth_value;
+	return s;
+}
+
+static inline void
+pointer_delta_smoothener_destroy(struct pointer_delta_smoothener *smoothener)
+{
+	free(smoothener);
+}
 
 struct pointer_trackers {
 	struct pointer_tracker *trackers;

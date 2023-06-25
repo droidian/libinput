@@ -438,6 +438,9 @@ struct tp_dispatch {
 	} tap;
 
 	struct {
+		struct libinput_device_config_dwtp config;
+		bool dwtp_enabled;
+
 		int32_t right_edge;		/* in device coordinates */
 		int32_t left_edge;		/* in device coordinates */
 		int32_t upper_edge;		/* in device coordinates */
@@ -604,6 +607,11 @@ tp_filter_motion_unaccelerated(struct tp_dispatch *tp,
 			       const struct device_float_coords *unaccelerated,
 			       uint64_t time);
 
+struct normalized_coords
+tp_filter_scroll(struct tp_dispatch *tp,
+		 const struct device_float_coords *unaccelerated,
+		 uint64_t time);
+
 bool
 tp_touch_active(const struct tp_dispatch *tp, const struct tp_touch *t);
 
@@ -722,9 +730,6 @@ tp_gesture_stop_twofinger_scroll(struct tp_dispatch *tp, uint64_t time);
 
 void
 tp_gesture_tap_timeout(struct tp_dispatch *tp, uint64_t time);
-
-bool
-tp_palm_tap_is_palm(const struct tp_dispatch *tp, const struct tp_touch *t);
 
 void
 tp_clickpad_middlebutton_apply_config(struct evdev_device *device);

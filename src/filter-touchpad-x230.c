@@ -283,10 +283,11 @@ touchpad_lenovo_x230_accel_profile(struct motion_filter *filter,
 	return factor * X230_MAGIC_SLOWDOWN / X230_TP_MAGIC_LOW_RES_FACTOR;
 }
 
-struct motion_filter_interface accelerator_interface_x230 = {
+static const struct motion_filter_interface accelerator_interface_x230 = {
 	.type = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE,
 	.filter = accelerator_filter_x230,
 	.filter_constant = accelerator_filter_constant_x230,
+	.filter_scroll = accelerator_filter_constant_x230,
 	.restart = accelerator_restart_x230,
 	.destroy = accelerator_destroy_x230,
 	.set_speed = accelerator_set_speed_x230,

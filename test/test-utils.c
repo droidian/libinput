@@ -41,6 +41,57 @@
 
 #include "check-double-macros.h"
 
+START_TEST(array_for_each)
+{
+	int ai[6];
+	char ac[10];
+	struct as {
+		int a;
+		char b;
+		int *ptr;
+	} as[32];
+
+	for (size_t i = 0; i < 6; i++)
+		ai[i] = 20 + i;
+	for (size_t i = 0; i < 10; i++)
+		ac[i] = 100 + i;
+	for (size_t i = 0; i < 32; i++) {
+		as[i].a = 10 + i;
+		as[i].b = 20 + i;
+		as[i].ptr = (int*)0xab + i;
+	}
+
+	int iexpected = 20;
+	ARRAY_FOR_EACH(ai, entry) {
+		ck_assert_int_eq(*entry, iexpected);
+		++iexpected;
+	}
+	ck_assert_int_eq(iexpected, 26);
+
+	int cexpected = 100;
+	ARRAY_FOR_EACH(ac, entry) {
+		ck_assert_int_eq(*entry, cexpected);
+		++cexpected;
+	}
+	ck_assert_int_eq(cexpected, 110);
+
+	struct as sexpected = {
+		.a = 10,
+		.b = 20,
+		.ptr = (int*)0xab,
+	};
+	ARRAY_FOR_EACH(as, entry) {
+		ck_assert_int_eq(entry->a, sexpected.a);
+		ck_assert_int_eq(entry->b, sexpected.b);
+		ck_assert_ptr_eq(entry->ptr, sexpected.ptr);
+		++sexpected.a;
+		++sexpected.b;
+		++sexpected.ptr;
+	}
+	ck_assert_int_eq(sexpected.a, 42);
+}
+END_TEST
+
 START_TEST(bitfield_helpers)
 {
 	/* This value has a bit set on all of the word boundaries we want to
@@ -351,7 +402,8 @@ START_TEST(reliability_prop_parser)
 		enum switch_reliability reliability;
 	} tests[] = {
 		{ "reliable", true, RELIABILITY_RELIABLE },
-		{ "unreliable", false, 0 },
+		{ "unreliable", true, RELIABILITY_UNRELIABLE },
+		{ "write_open", true, RELIABILITY_WRITE_OPEN },
 		{ "", false, 0 },
 		{ "0", false, 0 },
 		{ "1", false, 0 },
@@ -373,7 +425,7 @@ START_TEST(reliability_prop_parser)
 
 	success = parse_switch_reliability_property(NULL, &r);
 	ck_assert(success == true);
-	ck_assert_int_eq(r, RELIABILITY_UNKNOWN);
+	ck_assert_int_eq(r, RELIABILITY_RELIABLE);
 
 	success = parse_switch_reliability_property("foo", NULL);
 	ck_assert(success == false);
@@ -508,47 +560,50 @@ START_TEST(evcode_prop_parser)
 	struct parser_test_tuple {
 		const char *prop;
 		bool success;
-		size_t ntuples;
-		int tuples[20];
+		size_t nevents;
+		struct input_event events[20];
 	} tests[] = {
-		{ "EV_KEY", true, 1, {EV_KEY, 0xffff} },
-		{ "EV_ABS;", true, 1, {EV_ABS, 0xffff} },
-		{ "ABS_X;", true, 1, {EV_ABS, ABS_X} },
-		{ "SW_TABLET_MODE;", true, 1, {EV_SW, SW_TABLET_MODE} },
-		{ "EV_SW", true, 1, {EV_SW, 0xffff} },
-		{ "ABS_Y", true, 1, {EV_ABS, ABS_Y} },
-		{ "EV_ABS:0x00", true, 1, {EV_ABS, ABS_X} },
-		{ "EV_ABS:01", true, 1, {EV_ABS, ABS_Y} },
-		{ "ABS_TILT_X;ABS_TILT_Y;", true, 2,
-			{ EV_ABS, ABS_TILT_X,
-			  EV_ABS, ABS_TILT_Y} },
-		{ "BTN_TOOL_DOUBLETAP;EV_KEY;KEY_A", true, 3,
-			{ EV_KEY, BTN_TOOL_DOUBLETAP,
-			  EV_KEY, 0xffff,
-			  EV_KEY, KEY_A } },
-		{ "REL_Y;ABS_Z;BTN_STYLUS", true, 3,
-			{ EV_REL, REL_Y,
-			  EV_ABS, ABS_Z,
-			  EV_KEY, BTN_STYLUS } },
-		{ "REL_Y;EV_KEY:0x123;BTN_STYLUS", true, 3,
-			{ EV_REL, REL_Y,
-			  EV_KEY, 0x123,
-			  EV_KEY, BTN_STYLUS } },
+		{ "+EV_KEY", true, 1, {{ .type = EV_KEY, .code = 0xffff, .value = 1 }} },
+		{ "-EV_ABS;", true, 1, {{ .type = EV_ABS, .code = 0xffff, .value = 0 }} },
+		{ "+ABS_X;", true, 1, {{ .type = EV_ABS, .code = ABS_X, .value = 1 }} },
+		{ "-SW_TABLET_MODE;", true, 1, {{ .type = EV_SW, .code = SW_TABLET_MODE, .value = 0 }} },
+		{ "+EV_SW", true, 1, {{ .type = EV_SW, .code = 0xffff, .value = 1 }} },
+		{ "-ABS_Y", true, 1, {{ .type = EV_ABS, .code = ABS_Y, .value = 0 }} },
+		{ "+EV_ABS:0x00", true, 1, {{ .type = EV_ABS, .code = ABS_X, .value = 1 }} },
+		{ "-EV_ABS:01", true, 1, {{ .type = EV_ABS, .code = ABS_Y, .value = 0 }} },
+		{ "+ABS_TILT_X;-ABS_TILT_Y;", true, 2,
+			{{ .type = EV_ABS, .code = ABS_TILT_X, .value = 1 },
+			 { .type = EV_ABS, .code = ABS_TILT_Y, .value = 0}} },
+		{ "+BTN_TOOL_DOUBLETAP;+EV_KEY;-KEY_A", true, 3,
+			{{ .type = EV_KEY, .code = BTN_TOOL_DOUBLETAP, .value = 1 } ,
+			 { .type = EV_KEY, .code = 0xffff, .value = 1 },
+			 { .type = EV_KEY, .code = KEY_A, .value = 0 }} },
+		{ "+REL_Y;-ABS_Z;+BTN_STYLUS", true, 3,
+			{{ .type = EV_REL, .code = REL_Y, .value = 1},
+			 { .type = EV_ABS, .code = ABS_Z, .value = 0},
+			 { .type = EV_KEY, .code = BTN_STYLUS, .value = 1 }} },
+		{ "-REL_Y;+EV_KEY:0x123;-BTN_STYLUS", true, 3,
+			{{ .type = EV_REL, .code = REL_Y, .value = 0 },
+			 { .type = EV_KEY, .code = 0x123, .value = 1 },
+			 { .type = EV_KEY, .code = BTN_STYLUS, .value = 0 }} },
 		{ .prop = "", .success = false },
-		{ .prop = "EV_FOO", .success = false },
-		{ .prop = "EV_KEY;EV_FOO", .success = false },
-		{ .prop = "BTN_STYLUS;EV_FOO", .success = false },
-		{ .prop = "BTN_UNKNOWN", .success = false },
-		{ .prop = "BTN_UNKNOWN;EV_KEY", .success = false },
-		{ .prop = "PR_UNKNOWN", .success = false },
-		{ .prop = "BTN_STYLUS;PR_UNKNOWN;ABS_X", .success = false },
-		{ .prop = "EV_REL:0xffff", .success = false },
-		{ .prop = "EV_REL:0x123.", .success = false },
-		{ .prop = "EV_REL:ffff", .success = false },
-		{ .prop = "EV_REL:blah", .success = false },
-		{ .prop = "KEY_A:0x11", .success = false },
-		{ .prop = "EV_KEY:0x11 ", .success = false },
-		{ .prop = "EV_KEY:0x11not", .success = false },
+		{ .prop = "+", .success = false },
+		{ .prop = "-", .success = false },
+		{ .prop = "!", .success = false },
+		{ .prop = "+EV_FOO", .success = false },
+		{ .prop = "+EV_KEY;-EV_FOO", .success = false },
+		{ .prop = "+BTN_STYLUS;-EV_FOO", .success = false },
+		{ .prop = "-BTN_UNKNOWN", .success = false },
+		{ .prop = "+BTN_UNKNOWN;+EV_KEY", .success = false },
+		{ .prop = "-PR_UNKNOWN", .success = false },
+		{ .prop = "-BTN_STYLUS;+PR_UNKNOWN;-ABS_X", .success = false },
+		{ .prop = "-EV_REL:0xffff", .success = false },
+		{ .prop = "-EV_REL:0x123.", .success = false },
+		{ .prop = "-EV_REL:ffff", .success = false },
+		{ .prop = "-EV_REL:blah", .success = false },
+		{ .prop = "+KEY_A:0x11", .success = false },
+		{ .prop = "+EV_KEY:0x11 ", .success = false },
+		{ .prop = "+EV_KEY:0x11not", .success = false },
 		{ .prop = "none", .success = false },
 		{ .prop = NULL },
 	};
@@ -565,14 +620,14 @@ START_TEST(evcode_prop_parser)
 		if (!success)
 			continue;
 
-		ck_assert_int_eq(nevents, t->ntuples);
+		ck_assert_int_eq(nevents, t->nevents);
 		for (size_t j = 0; j < nevents; j++) {
-			int type, code;
-
-			type = events[j].type;
-			code = events[j].code;
-			ck_assert_int_eq(t->tuples[j * 2], type);
-			ck_assert_int_eq(t->tuples[j * 2 + 1], code);
+			unsigned int type = events[j].type;
+			unsigned int code = events[j].code;
+			int value = events[j].value;
+			ck_assert_int_eq(t->events[j].type, type);
+			ck_assert_int_eq(t->events[j].code, code);
+			ck_assert_int_eq(t->events[j].value, value);
 		}
 	}
 }
@@ -584,16 +639,16 @@ START_TEST(input_prop_parser)
 		const char *prop;
 		bool success;
 		size_t nvals;
-		uint32_t values[20];
+		struct input_prop values[20];
 	} tests[] = {
-		{ "INPUT_PROP_BUTTONPAD", true, 1, {INPUT_PROP_BUTTONPAD}},
-		{ "INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER", true, 2,
-			{ INPUT_PROP_BUTTONPAD,
-			  INPUT_PROP_POINTER }},
-		{ "INPUT_PROP_BUTTONPAD;0x00;0x03", true, 3,
-			{ INPUT_PROP_BUTTONPAD,
-			  INPUT_PROP_POINTER,
-			  INPUT_PROP_SEMI_MT }},
+		{ "+INPUT_PROP_BUTTONPAD", true, 1, {{ INPUT_PROP_BUTTONPAD, true }}},
+		{ "+INPUT_PROP_BUTTONPAD;-INPUT_PROP_POINTER", true, 2,
+			{ { INPUT_PROP_BUTTONPAD, true },
+			  { INPUT_PROP_POINTER, false }}},
+		{ "+INPUT_PROP_BUTTONPAD;-0x00;+0x03", true, 3,
+			{ { INPUT_PROP_BUTTONPAD, true },
+			  { INPUT_PROP_POINTER, false },
+			  { INPUT_PROP_SEMI_MT, true }}},
 		{ .prop = "", .success = false },
 		{ .prop = "0xff", .success = false },
 		{ .prop = "INPUT_PROP", .success = false },
@@ -607,7 +662,7 @@ START_TEST(input_prop_parser)
 
 	for (int i = 0; tests[i].prop; i++) {
 		bool success;
-		uint32_t props[32];
+		struct input_prop props[32];
 		size_t nprops = ARRAY_LENGTH(props);
 
 		t = &tests[i];
@@ -618,7 +673,8 @@ START_TEST(input_prop_parser)
 
 		ck_assert_int_eq(nprops, t->nvals);
 		for (size_t j = 0; j < t->nvals; j++) {
-			ck_assert_int_eq(t->values[j], props[j]);
+			ck_assert_int_eq(t->values[j].prop, props[j].prop);
+			ck_assert_int_eq(t->values[j].enabled, props[j].enabled);
 		}
 	}
 }
@@ -678,7 +734,6 @@ START_TEST(evdev_abs_parser)
 		{ .which = 0, .prop = ":asb::::" },
 		{ .which = 0, .prop = "foo" },
 	};
-	struct test *t;
 
 	ARRAY_FOR_EACH(tests, t) {
 		struct input_absinfo abs;
@@ -1019,39 +1074,92 @@ START_TEST(strsplit_test)
 		const char *string;
 		const char *delim;
 		const char *results[10];
+		const size_t nresults;
 	} tests[] = {
-		{ "one two three", " ", { "one", "two", "three", NULL } },
-		{ "one", " ", { "one", NULL } },
-		{ "one two ", " ", { "one", "two", NULL } },
-		{ "one  two", " ", { "one", "two", NULL } },
-		{ " one two", " ", { "one", "two", NULL } },
-		{ "one", "\t \r", { "one", NULL } },
-		{ "one two three", " t", { "one", "wo", "hree", NULL } },
-		{ " one two three", "te", { " on", " ", "wo ", "hr", NULL } },
-		{ "one", "ne", { "o", NULL } },
-		{ "onene", "ne", { "o", NULL } },
-		{ NULL, NULL, { NULL }}
+		{ "one two three", " ", { "one", "two", "three", NULL }, 3 },
+		{ "one two\tthree", " \t", { "one", "two", "three", NULL }, 3 },
+		{ "one", " ", { "one", NULL }, 1 },
+		{ "one two ", " ", { "one", "two", NULL }, 2 },
+		{ "one  two", " ", { "one", "two", NULL }, 2 },
+		{ " one two", " ", { "one", "two", NULL }, 2 },
+		{ "one", "\t \r", { "one", NULL }, 1 },
+		{ "one two three", " t", { "one", "wo", "hree", NULL }, 3 },
+		{ " one two three", "te", { " on", " ", "wo ", "hr", NULL }, 4 },
+		{ "one", "ne", { "o", NULL }, 1 },
+		{ "onene", "ne", { "o", NULL }, 1 },
+		{ "+1-2++3--4++-+5-+-", "+-", { "1", "2", "3", "4", "5", NULL }, 5 },
+		/* special cases */
+		{ "", " ", { NULL }, 0 },
+		{ " ", " ", { NULL }, 0 },
+		{ "     ", " ", { NULL }, 0 },
+		{ "oneoneone", "one", { NULL} , 0 },
+		{ NULL, NULL, { NULL }, 0}
 	};
 	struct strsplit_test *t = tests;
 
 	while (t->string) {
-		char **strv;
-		int idx = 0;
-		strv = strv_from_string(t->string, t->delim);
-		while (t->results[idx]) {
+		size_t nelem;
+		char **strv = strv_from_string(t->string, t->delim, &nelem);
+
+		for (size_t idx = 0; idx < t->nresults; idx++)
 			ck_assert_str_eq(t->results[idx], strv[idx]);
-			idx++;
-		}
-		ck_assert_ptr_eq(strv[idx], NULL);
+
+		ck_assert_uint_eq(nelem, t->nresults);
+
+		/* When there are no elements validate return value is Null,
+		   otherwise validate result array is Null terminated. */
+		if(t->nresults == 0)
+			ck_assert_ptr_eq(strv, NULL);
+		else
+			ck_assert_ptr_eq(strv[t->nresults], NULL);
+
 		strv_free(strv);
 		t++;
 	}
+}
+END_TEST
 
-	/* Special cases */
-	ck_assert_ptr_eq(strv_from_string("", " "), NULL);
-	ck_assert_ptr_eq(strv_from_string(" ", " "), NULL);
-	ck_assert_ptr_eq(strv_from_string("     ", " "), NULL);
-	ck_assert_ptr_eq(strv_from_string("oneoneone", "one"), NULL);
+START_TEST(double_array_from_string_test)
+{
+	struct double_array_from_string_test {
+		const char *string;
+		const char *delim;
+		const double array[10];
+		const size_t len;
+		const bool result;
+	} tests[] = {
+		{ "1 2 3", " ", { 1, 2, 3 }, 3 },
+		{ "1", " ", { 1 }, 1 },
+		{ "1,2.5,", ",", { 1, 2.5 }, 2 },
+		{ "1.0  2", " ", { 1, 2.0 }, 2 },
+		{ " 1 2", " ", { 1, 2 }, 2 },
+		{ " ; 1;2  3.5  ;;4.1", "; ", { 1, 2, 3.5, 4.1 }, 4 },
+		/* special cases */
+		{ "1 two", " ", { 0 }, 0 },
+		{ "one two", " ", { 0 }, 0 },
+		{ "one 2", " ", { 0 }, 0 },
+		{ "", " ", { 0 }, 0 },
+		{ " ", " ", { 0 }, 0 },
+		{ "    ", " ", { 0 }, 0 },
+		{ "", " ", { 0 }, 0 },
+		{ "oneoneone", "one", { 0 }, 0 },
+		{ NULL, NULL, { 0 }, 0 }
+	};
+	struct double_array_from_string_test *t = tests;
+
+	while (t->string) {
+		size_t len;
+		double *array = double_array_from_string(t->string,
+							 t->delim,
+							 &len);
+		ck_assert_int_eq(len, t->len);
+
+		for (size_t idx = 0; idx < len; idx++)
+			ck_assert_double_eq(array[idx], t->array[idx]);
+
+		free(array);
+		t++;
+	}
 }
 END_TEST
 
@@ -1071,7 +1179,6 @@ START_TEST(strargv_test)
 		{ 1, {NULL, NULL}, 0 },
 		{ 3, {"hello", NULL, "World"}, 0 },
 	};
-	struct argv_test *t;
 
 	ARRAY_FOR_EACH(tests, t) {
 		char **strv = strv_from_argv(t->argc, t->argv);
@@ -1267,6 +1374,31 @@ START_TEST(strstartswith_test)
 }
 END_TEST
 
+START_TEST(strsanitize_test)
+{
+	struct strsanitize_test {
+		const char *string;
+		const char *expected;
+	} tests[] = {
+		{ "foobar", "foobar" },
+		{ "", "" },
+		{ "%", "%%" },
+		{ "%%%%", "%%%%%%%%" },
+		{ "x %s", "x %%s" },
+		{ "x %", "x %%" },
+		{ "%sx", "%%sx" },
+		{ "%s%s", "%%s%%s" },
+		{ NULL, NULL },
+	};
+
+	for (struct strsanitize_test *t = tests; t->string; t++) {
+		char *sanitized = str_sanitize(t->string);
+		ck_assert_str_eq(sanitized, t->expected);
+		free(sanitized);
+	}
+}
+END_TEST
+
 START_TEST(list_test_insert)
 {
 	struct list_test {
@@ -1414,7 +1546,6 @@ START_TEST(basename_test)
 		{ "/bar", "bar" },
 		{ "", NULL },
 	};
-	struct test *t;
 
 	ARRAY_FOR_EACH(tests, t) {
 		const char *result = safe_basename(t->path);
@@ -1442,7 +1573,6 @@ START_TEST(trunkname_test)
 		{ "/bar", "bar" },
 		{ "", "" },
 	};
-	struct test *t;
 
 	ARRAY_FOR_EACH(tests, t) {
 		char *result = trunkname(t->path);
@@ -1460,6 +1590,8 @@ litest_utils_suite(void)
 
 	s = suite_create("litest:utils");
 	tc = tcase_create("utils");
+
+	tcase_add_test(tc, array_for_each);
 
 	tcase_add_test(tc, bitfield_helpers);
 	tcase_add_test(tc, matrix_helpers);
@@ -1483,12 +1615,14 @@ litest_utils_suite(void)
 	tcase_add_test(tc, safe_atou_base_8_test);
 	tcase_add_test(tc, safe_atod_test);
 	tcase_add_test(tc, strsplit_test);
+	tcase_add_test(tc, double_array_from_string_test);
 	tcase_add_test(tc, strargv_test);
 	tcase_add_test(tc, kvsplit_double_test);
 	tcase_add_test(tc, strjoin_test);
 	tcase_add_test(tc, strstrip_test);
 	tcase_add_test(tc, strendswith_test);
 	tcase_add_test(tc, strstartswith_test);
+	tcase_add_test(tc, strsanitize_test);
 	tcase_add_test(tc, time_conversion);
 	tcase_add_test(tc, human_time);
 

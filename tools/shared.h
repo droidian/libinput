@@ -48,6 +48,8 @@ enum configuration_options {
 	OPT_MIDDLEBUTTON_DISABLE,
 	OPT_DWT_ENABLE,
 	OPT_DWT_DISABLE,
+	OPT_DWTP_ENABLE,
+	OPT_DWTP_DISABLE,
 	OPT_CLICK_METHOD,
 	OPT_SCROLL_METHOD,
 	OPT_SCROLL_BUTTON,
@@ -57,6 +59,9 @@ enum configuration_options {
 	OPT_PROFILE,
 	OPT_DISABLE_SENDEVENTS,
 	OPT_APPLY_TO,
+	OPT_CUSTOM_POINTS,
+	OPT_CUSTOM_STEP,
+	OPT_CUSTOM_TYPE,
 };
 
 #define CONFIGURATION_OPTIONS \
@@ -75,6 +80,8 @@ enum configuration_options {
 	{ "disable-middlebutton",      no_argument,       0, OPT_MIDDLEBUTTON_DISABLE }, \
 	{ "enable-dwt",                no_argument,       0, OPT_DWT_ENABLE }, \
 	{ "disable-dwt",               no_argument,       0, OPT_DWT_DISABLE }, \
+	{ "enable-dwtp",               no_argument,       0, OPT_DWTP_ENABLE }, \
+	{ "disable-dwtp",              no_argument,       0, OPT_DWTP_DISABLE }, \
 	{ "enable-scroll-button-lock", no_argument,       0, OPT_SCROLL_BUTTON_LOCK_ENABLE }, \
 	{ "disable-scroll-button-lock",no_argument,       0, OPT_SCROLL_BUTTON_LOCK_DISABLE }, \
 	{ "set-click-method",          required_argument, 0, OPT_CLICK_METHOD }, \
@@ -83,7 +90,10 @@ enum configuration_options {
 	{ "set-profile",               required_argument, 0, OPT_PROFILE }, \
 	{ "set-tap-map",               required_argument, 0, OPT_TAP_MAP }, \
 	{ "set-speed",                 required_argument, 0, OPT_SPEED },\
-	{ "apply-to",                  required_argument, 0, OPT_APPLY_TO }
+	{ "apply-to",                  required_argument, 0, OPT_APPLY_TO },\
+	{ "set-custom-points",         required_argument, 0, OPT_CUSTOM_POINTS },\
+	{ "set-custom-step",           required_argument, 0, OPT_CUSTOM_STEP },\
+	{ "set-custom-type",           required_argument, 0, OPT_CUSTOM_TYPE }
 
 enum tools_backend {
 	BACKEND_NONE,
@@ -107,8 +117,13 @@ struct tools_options {
 	int scroll_button_lock;
 	double speed;
 	int dwt;
+	int dwtp;
 	enum libinput_config_accel_profile profile;
 	char disable_pattern[64];
+	enum libinput_config_accel_type custom_type;
+	double custom_step;
+	size_t custom_npoints;
+	double *custom_points;
 };
 
 void tools_init_options(struct tools_options *options);

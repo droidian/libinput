@@ -71,7 +71,7 @@ devices. ::
 
      $ libinput quirks list /dev/input/event19
      $ libinput quirks list /dev/input/event0
-     AttrLidSwitchReliability=reliable
+     AttrLidSwitchReliability=unreliable
 
 The device `event19` does not have any quirks assigned.
 
@@ -147,6 +147,10 @@ ModelBouncingKeys
     timestamps can not be relied upon.
 ModelSynapticsSerialTouchpad
     Reserved for touchpads made by Synaptics on the serial bus
+ModelPressurePad
+    Unlike in traditional touchpads, whose pressure value equals contact size,
+    on pressure pads pressure is a real physical axis.
+    Indicates that the device is a pressure pad.
 AttrSizeHint=NxM, AttrResolutionHint=N
     Hints at the width x height of the device in mm, or the resolution
     of the x/y axis in units/mm. These may only be used where they apply to
@@ -162,10 +166,11 @@ AttrPressureRange=N:M, AttrPalmPressureThreshold=O, AttrThumbPressureThreshold=P
     trigger a release (M), when a palm touch is triggered (O) and when a
     thumb touch is triggered (P). O > P > N > M. See
     :ref:`touchpad_pressure_hwdb` for more details.
-AttrLidSwitchReliability=reliable|write_open
-    Indicates the reliability of the lid switch. This is a string enum. Do not
-    use "reliable" for any specific device. Very few devices need this, if in
-    doubt do not set. See :ref:`switches_lid` for details.
+AttrLidSwitchReliability=reliable|unreliable|write_open
+    Indicates the reliability of the lid switch. This is a string enum.
+    Very few devices need this, if in doubt do not set. See :ref:`switches_lid`
+    for details. libinput 1.21.0 changed the default from unreliable to
+    reliable, which may be removed from local overrides.
 AttrKeyboardIntegration=internal|external
     Indicates the integration of the keyboard. This is a string enum.
     Generally only needed for USB keyboards.
@@ -173,19 +178,14 @@ AttrTPKComboLayout=below
     Indicates the position of the touchpad on an external touchpad+keyboard
     combination device. This is a string enum. Don't specify it unless the
     touchpad is below.
-AttrEventCodeDisable=EV_ABS;BTN_STYLUS;EV_KEY:0x123;
-    Disables the evdev event type/code tuples on the device. Entries may be
+AttrEventCode=+EV_ABS;-BTN_STYLUS;+EV_KEY:0x123;
+    Enables or disables the evdev event type/code tuples on the device. The prefix
+    for each entry is either '+' (enable) or '-' (disable). Entries may be
     a named event type, or a named event code, or a named event type with a
     hexadecimal event code, separated by a single colon.
-AttrEventCodeEnable=EV_ABS;BTN_STYLUS;EV_KEY:0x123;
-    Enables the evdev event type/code tuples on the device. Entries may be
-    a named event type, or a named event code, or a named event type with a
-    hexadecimal event code, separated by a single colon.
-AttrInputPropDisable=INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER;
-    Disables the evdev input property on the device. Entries may be
-    a named input property or the hexadecimal value of that property.
-AttrInputPropEnable=INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER;
-    Enables the evdev input property on the device. Entries may be
+AttrInputProp=+INPUT_PROP_BUTTONPAD;-INPUT_PROP_POINTER;
+    Enables or disables the evdev input property on the device. The prefix
+    for each entry is either '+' (enable) or '-' (disable). Entries may be
     a named input property or the hexadecimal value of that property.
 AttrPointingStickIntegration=internal|external
     Indicates the integration of the pointing stick. This is a string enum.

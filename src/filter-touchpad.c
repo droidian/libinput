@@ -90,78 +90,39 @@ calculate_acceleration_factor(struct touchpad_accelerator *accel,
 	return accel_factor;
 }
 
-/**
- * Generic filter that calculates the acceleration factor and applies it to
- * the coordinates.
- *
- * @param filter The acceleration filter
- * @param unaccelerated The raw delta in the device's dpi
- * @param data Caller-specific data
- * @param time Current time in µs
- *
- * @return An accelerated tuple of coordinates representing accelerated
- * motion, still in device units.
- */
-static struct device_float_coords
-accelerator_filter_generic(struct motion_filter *filter,
-			   const struct device_float_coords *unaccelerated,
-			   void *data, uint64_t time)
-{
-	struct touchpad_accelerator *accel =
-		(struct touchpad_accelerator *) filter;
-	double accel_value; /* unitless factor */
-	struct device_float_coords accelerated;
-
-	accel_value = calculate_acceleration_factor(accel,
-						    unaccelerated,
-						    data,
-						    time);
-
-	accelerated.x = accel_value * unaccelerated->x;
-	accelerated.y = accel_value * unaccelerated->y;
-
-	return accelerated;
-}
-
 static struct normalized_coords
-accelerator_filter_post_normalized(struct motion_filter *filter,
-				   const struct device_float_coords *unaccelerated,
-				   void *data, uint64_t time)
+accelerator_filter_touchpad(struct motion_filter *filter,
+			    const struct device_float_coords *unaccelerated,
+			    void *data, uint64_t time)
 {
 	struct touchpad_accelerator *accel =
 		(struct touchpad_accelerator *) filter;
-	struct device_float_coords accelerated;
 
 	/* Accelerate for device units, normalize afterwards */
-	accelerated = accelerator_filter_generic(filter,
-						 unaccelerated,
-						 data,
-						 time);
+	double accel_factor = calculate_acceleration_factor(accel,
+							    unaccelerated,
+							    data,
+							    time);
+	const struct device_float_coords accelerated =  {
+		.x = unaccelerated->x * accel_factor,
+		.y = unaccelerated->y * accel_factor,
+	};
+
 	return normalize_for_dpi(&accelerated, accel->dpi);
 }
 
 /* Maps the [-1, 1] speed setting into a constant acceleration
  * range. This isn't a linear scale, we keep 0 as the 'optimized'
- * mid-point and scale down to 0 for setting -1 and up to 5 for
+ * mid-point and scale down to 0.05 for setting -1 and up to 5 for
  * setting 1. On the premise that if you want a faster cursor, it
  * doesn't matter as much whether you have 0.56789 or 0.56790,
  * but for lower settings it does because you may lose movements.
  * *shrug*.
- *
- * Magic numbers calculated by MyCurveFit.com, data points were
- *  0.0 0.0
- *  0.1 0.1 (because we need 4 points)
- *  1   1
- *  2   5
- *
- *  This curve fits nicely into the range necessary.
  */
 static inline double
 speed_factor(double s)
 {
-	s += 1; /* map to [0, 2] */
-	return 435837.2 + (0.04762636 - 435837.2)/(1 + pow(s/240.4549,
-							   2.377168));
+	return pow(s + 1, 2.38) * 0.95 + 0.05;
 }
 
 static bool
@@ -313,10 +274,11 @@ touchpad_accel_profile_linear(struct motion_filter *filter,
 	return factor * TP_MAGIC_SLOWDOWN;
 }
 
-struct motion_filter_interface accelerator_interface_touchpad = {
+static const struct motion_filter_interface accelerator_interface_touchpad = {
 	.type = LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE,
-	.filter = accelerator_filter_post_normalized,
+	.filter = accelerator_filter_touchpad,
 	.filter_constant = touchpad_constant_filter,
+	.filter_scroll = touchpad_constant_filter,
 	.restart = touchpad_accelerator_restart,
 	.destroy = touchpad_accelerator_destroy,
 	.set_speed = touchpad_accelerator_set_speed,
@@ -329,7 +291,6 @@ create_pointer_accelerator_filter_touchpad(int dpi,
 	bool use_velocity_averaging)
 {
 	struct touchpad_accelerator *filter;
-	struct pointer_delta_smoothener *smoothener;
 
 	filter = zalloc(sizeof *filter);
 	filter->last_velocity = 0.0;
@@ -341,11 +302,7 @@ create_pointer_accelerator_filter_touchpad(int dpi,
 
 	filter->base.interface = &accelerator_interface_touchpad;
 	filter->profile = touchpad_accel_profile_linear;
-
-	smoothener = zalloc(sizeof(*smoothener));
-	smoothener->threshold = event_delta_smooth_threshold,
-	smoothener->value = event_delta_smooth_value,
-	filter->trackers.smoothener = smoothener;
+	filter->trackers.smoothener = pointer_delta_smoothener_create(event_delta_smooth_threshold, event_delta_smooth_value);
 
 	return &filter->base;
 }

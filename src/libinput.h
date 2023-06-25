@@ -5179,6 +5179,12 @@ libinput_device_config_accel_set_speed(struct libinput_device *device,
  * returned value is normalized to a range of [-1, 1].
  * See libinput_device_config_accel_set_speed() for details.
  *
+ * If the current acceleration profile is @ref
+ * LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM, the behavior of the
+ * device will not change but future calls to
+ * libinput_device_config_accel_get_speed() will reflect the updated speed
+ * setting.
+ *
  * @param device The device to configure
  *
  * @return The current speed, range -1 to 1
@@ -5232,7 +5238,180 @@ enum libinput_config_accel_profile {
 	 * on the input speed. This is the default profile for most devices.
 	 */
 	LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE = (1 << 1),
+
+	/**
+	 * A custom acceleration profile. Device movement acceleration depends
+	 * on user defined custom acceleration functions for each movement
+	 * type.
+	 *
+	 * @see libinput_device_config_accel_set_points
+	 */
+	LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM = (1 << 2),
 };
+
+/**
+ * @ingroup config
+ *
+ * A handle for configuration pointer acceleration.
+ *
+ * @warning Unlike other structs pointer acceleration configuration is
+ * considered transient and <b>not</b> refcounted. Calling
+ * libinput_config_accel_destroy() <b>will</b> destroy the configuration.
+ *
+ * To configure pointer acceleration, first create a config of a desired
+ * acceleration profile with libinput_config_accel_create(), then
+ * configure the profile-specific acceleration properties.
+ *
+ * In this version of libinput, this pointer acceleration configuration
+ * only provides configuration for @ref LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM.
+ *
+ * For @ref LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM use
+ * @ref libinput_config_accel_set_points.
+ *
+ * Once set up, apply the configuration to a device using
+ * libinput_device_config_accel_apply(). Once applied,
+ * destroy it with libinput_config_accel_destroy().
+ *
+ * @since 1.23
+ */
+struct libinput_config_accel;
+
+/**
+ * @ingroup config
+ *
+ * Create an acceleration configuration of a given profile.
+ *
+ * Note that in this version of libinput, only the
+ * @ref LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM profile provides configuration
+ * options. All other acceleration profiles, when applied, will merely switch
+ * the profile and reset any profile-specific options to the default values.
+ *
+ * @param profile The profile of the newly created acceleration configuration.
+ *
+ * @return The newly created acceleration configuration or NULL on error.
+ *
+ * @warning Unlike other structs pointer acceleration configuration is
+ * considered transient and <b>not</b> refcounted. Calling
+ * libinput_config_accel_destroy() <b>will</b> destroy the configuration.
+ *
+ * @see libinput_config_accel
+ * @since 1.23
+ */
+struct libinput_config_accel *
+libinput_config_accel_create(enum libinput_config_accel_profile profile);
+
+/**
+ * @ingroup config
+ *
+ * Destroy an acceleration configuration.
+ *
+ * @warning Unlike other structs pointer acceleration configuration is
+ * considered transient and <b>not</b> refcounted. Calling
+ * libinput_config_accel_destroy() <b>will</b> destroy the configuration.
+ *
+ * @param accel_config The acceleration configuration to destroy.
+ *
+ * @see libinput_config_accel
+ * @since 1.23
+ */
+void
+libinput_config_accel_destroy(struct libinput_config_accel *accel_config);
+
+/**
+ * @ingroup config
+ *
+ * Apply this pointer acceleration configuration to the device. This changes the
+ * device's pointer acceleration method to the method given in
+ * libinput_config_accel_create() and applies all other configuration settings.
+ *
+ * Once applied, call libinput_config_accel_destroy() to destroy the
+ * configuration struct.
+ *
+ * @param device The device to configure.
+ * @param accel_config The acceleration configuration.
+ *
+ * @return A config status code.
+ *
+ * @see libinput_config_accel
+ * @since 1.23
+ */
+enum libinput_config_status
+libinput_device_config_accel_apply(struct libinput_device *device,
+				   struct libinput_config_accel *accel_config);
+
+/**
+ * @ingroup config
+ *
+ * Acceleration types are categories of movement by a device that may have
+ * specific acceleration functions applied. A device always supports the
+ * @ref LIBINPUT_ACCEL_TYPE_MOTION type (for regular pointer motion). Other
+ * types (e.g. scrolling) may be added in the future.
+ *
+ * The special type @ref LIBINPUT_ACCEL_TYPE_FALLBACK specifies the acceleration
+ * function to be moved for any movement produced by the device that does not
+ * have a specific acceleration type defined.
+ *
+ * Use to specify the acceleration function type in
+ * @ref libinput_config_accel_set_points
+ *
+ * Each device implements a subset of those types, see a list of supported
+ * devices for each movement type definition.
+ *
+ * @see LIBINPUT_ACCEL_ARG_TYPE
+ * @since 1.23
+ */
+enum libinput_config_accel_type {
+	/**
+	 * The default acceleration type used as a fallback when other
+	 * acceleration types are not provided.
+	 */
+	LIBINPUT_ACCEL_TYPE_FALLBACK = 0,
+	/**
+	 * Acceleration type for regular pointer movement. This
+	 * type is always supported.
+	 */
+	LIBINPUT_ACCEL_TYPE_MOTION,
+	/**
+	 * Acceleration type for scroll movement.
+	 * This type is supported by mouse and touchpad.
+	 */
+	LIBINPUT_ACCEL_TYPE_SCROLL,
+};
+
+/**
+ * @ingroup config
+ *
+ * Defines the acceleration function for a given movement type
+ * in an acceleration configuration with the profile
+ * @ref LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM.
+ *
+ * Movement types are specific to each device, @see libinput_config_accel_type.
+ *
+ * Each custom acceleration function is defined by ``n`` points spaced uniformly
+ * along the x-axis starting from 0 and continuing in a constant step size.
+ * There by the function is defined by the following points:
+ * (0 * step, f[0]), (1 * step, f[1]), ..., ((n - 1) * step, f[n - 1]).
+ * The x-axis represents the device-speed in device units per millisecond.
+ * The y-axis represents the pointer-speed.
+ *
+ * It is up to the user to define those values in accordance with device DPI
+ * and screen DPI.
+ *
+ * @param accel_config The acceleration configuration to modify.
+ * @param accel_type The movement type to configure a custom function for.
+ * @param step The distance between each point along the x-axis.
+ * @param npoints The number of points of the custom acceleration function.
+ * @param points The points' y-values of the custom acceleration function.
+ *
+ * @return A config status code.
+ *
+ * @see libinput_config_accel
+ * @since 1.23
+ */
+enum libinput_config_status
+libinput_config_accel_set_points(struct libinput_config_accel *accel_config,
+				 enum libinput_config_accel_type accel_type,
+				 double step, size_t npoints, double *points);
 
 /**
  * @ingroup config
@@ -6043,6 +6222,106 @@ libinput_device_config_dwt_get_default_enabled(struct libinput_device *device);
 /**
  * @ingroup config
  *
+ * Possible states for the disable-while-trackpointing feature.
+ *
+ * @since 1.21
+ */
+enum libinput_config_dwtp_state {
+	LIBINPUT_CONFIG_DWTP_DISABLED,
+	LIBINPUT_CONFIG_DWTP_ENABLED,
+};
+
+/**
+ * @ingroup config
+ *
+ * Check if this device supports configurable disable-while-trackpointing
+ * feature. This feature is usually available on Thinkpads and disables the
+ * touchpad while using the trackpoint. See the libinput documentation for
+ * details.
+ *
+ * @param device The device to configure
+ * @return 0 if this device does not support disable-while-trackpointing, or 1
+ * otherwise.
+ *
+ * @see libinput_device_config_dwtp_set_enabled
+ * @see libinput_device_config_dwtp_get_enabled
+ * @see libinput_device_config_dwtp_get_default_enabled
+ *
+ * @since 1.21
+ */
+int
+libinput_device_config_dwtp_is_available(struct libinput_device *device);
+
+/**
+ * @ingroup config
+ *
+ * Enable or disable the disable-while-trackpointing feature. When enabled, the
+ * device will be disabled while using the trackpoint and for a short period
+ * after. See the libinput documentation for details.
+ *
+ * @note Enabling or disabling disable-while-trackpointing may not take effect
+ * immediately.
+ *
+ * @param device The device to configure
+ * @param enable @ref LIBINPUT_CONFIG_DWTP_DISABLED to disable
+ * disable-while-trackpointing, @ref LIBINPUT_CONFIG_DWTP_ENABLED to enable
+ *
+ * @return A config status code. Disabling disable-while-trackpointing on a
+ * device that does not support the feature always succeeds.
+ *
+ * @see libinput_device_config_dwtp_is_available
+ * @see libinput_device_config_dwtp_get_enabled
+ * @see libinput_device_config_dwtp_get_default_enabled
+ *
+ * @since 1.21
+ */
+enum libinput_config_status
+libinput_device_config_dwtp_set_enabled(struct libinput_device *device,
+				       enum libinput_config_dwtp_state enable);
+
+/**
+ * @ingroup config
+ *
+ * Check if the disable-while trackpointing feature is currently enabled on
+ * this device. If the device does not support disable-while-trackpointing,
+ * this function returns @ref LIBINPUT_CONFIG_DWTP_DISABLED.
+ *
+ * @param device The device to configure
+ * @return @ref LIBINPUT_CONFIG_DWTP_DISABLED if disabled, @ref
+ * LIBINPUT_CONFIG_DWTP_ENABLED if enabled.
+ *
+ * @see libinput_device_config_dwtp_is_available
+ * @see libinput_device_config_dwtp_set_enabled
+ * @see libinput_device_config_dwtp_get_default_enabled
+ *
+ * @since 1.21
+ */
+enum libinput_config_dwtp_state
+libinput_device_config_dwtp_get_enabled(struct libinput_device *device);
+
+/**
+ * @ingroup config
+ *
+ * Check if the disable-while trackpointing feature is enabled on this device
+ * by default. If the device does not support disable-while-trackpointing, this
+ * function returns @ref LIBINPUT_CONFIG_DWTP_DISABLED.
+ *
+ * @param device The device to configure
+ * @return @ref LIBINPUT_CONFIG_DWTP_DISABLED if disabled, @ref
+ * LIBINPUT_CONFIG_DWTP_ENABLED if enabled.
+ *
+ * @see libinput_device_config_dwtp_is_available
+ * @see libinput_device_config_dwtp_set_enabled
+ * @see libinput_device_config_dwtp_get_enabled
+ *
+ * @since 1.21
+ */
+enum libinput_config_dwtp_state
+libinput_device_config_dwtp_get_default_enabled(struct libinput_device *device);
+
+/**
+ * @ingroup config
+ *
  * Check whether a device can have a custom rotation applied.
  *
  * @param device The device to configure
@@ -6068,11 +6347,6 @@ libinput_device_config_rotation_is_available(struct libinput_device *device);
  * function returns LIBINPUT_CONFIG_STATUS_INVALID. If the angle is a
  * multiple of 360 or negative, the caller must ensure the correct ranging
  * before calling this function.
- *
- * libinput guarantees that this function accepts multiples of 90 degrees.
- * If a value is within the [0, 360[ range but not a multiple of 90 degrees,
- * this function may return LIBINPUT_CONFIG_STATUS_INVALID if the underlying
- * device or implementation does not support finer-grained rotation angles.
  *
  * The rotation angle is applied to all motion events emitted by the device.
  * Thus, rotating the device also changes the angle required or presented by

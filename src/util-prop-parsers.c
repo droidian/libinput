@@ -176,32 +176,31 @@ parse_dimension_property(const char *prop, size_t *w, size_t *h)
 bool
 parse_calibration_property(const char *prop, float calibration_out[6])
 {
-	int idx;
-	char **strv;
-	float calibration[6];
-
 	if (!prop)
 		return false;
 
-	strv = strv_from_string(prop, " ");
-	if (!strv)
-		return false;
+	bool rc = false;
 
-	for (idx = 0; idx < 6; idx++) {
+	size_t num_calibration;
+	char **strv = strv_from_string(prop, " ", &num_calibration);
+	if (!strv || num_calibration < 6)
+		goto out;
+
+	float calibration[6];
+	for (size_t idx = 0; idx < 6; idx++) {
 		double v;
-		if (strv[idx] == NULL || !safe_atod(strv[idx], &v)) {
-			strv_free(strv);
-			return false;
-		}
+		if (!safe_atod(strv[idx], &v))
+			goto out;
 
 		calibration[idx] = v;
 	}
 
-	strv_free(strv);
-
 	memcpy(calibration_out, calibration, sizeof(calibration));
+	rc = true;
 
-	return true;
+out:
+	strv_free(strv);
+	return rc;
 }
 
 bool
@@ -209,12 +208,14 @@ parse_switch_reliability_property(const char *prop,
 				  enum switch_reliability *reliability)
 {
 	if (!prop) {
-		*reliability = RELIABILITY_UNKNOWN;
+		*reliability = RELIABILITY_RELIABLE;
 		return true;
 	}
 
 	if (streq(prop, "reliable"))
 		*reliability = RELIABILITY_RELIABLE;
+	else if (streq(prop, "unreliable"))
+		*reliability = RELIABILITY_UNRELIABLE;
 	else if (streq(prop, "write_open"))
 		*reliability = RELIABILITY_WRITE_OPEN;
 	else
@@ -321,7 +322,6 @@ parse_evcode_string(const char *s, int *type_out, int *code_out)
 			{ "REL_", EV_REL },
 			{ "SW_", EV_SW },
 		};
-		struct map *m;
 		bool found = false;
 
 		ARRAY_FOR_EACH(map, m) {
@@ -347,10 +347,10 @@ parse_evcode_string(const char *s, int *type_out, int *code_out)
 }
 
 /**
- * Parses a string of the format "EV_ABS;KEY_A;BTN_TOOL_DOUBLETAP;ABS_X;"
- * where each element must be a named event type OR a named event code OR a
- * tuple in the form of EV_KEY:0x123, i.e. a named event type followed by a
- * hex event code.
+ * Parses a string of the format "+EV_ABS;+KEY_A;-BTN_TOOL_DOUBLETAP;-ABS_X;"
+ * where each element must be + or - (enable/disable) followed by a named event
+ * type OR a named event code OR a tuple in the form of EV_KEY:0x123, i.e. a
+ * named event type followed by a hex event code.
  *
  * events must point to an existing array of size nevents.
  * nevents specifies the size of the array in events and returns the number
@@ -361,33 +361,36 @@ parse_evcode_string(const char *s, int *type_out, int *code_out)
  * other fields undefined. Where only the event type is specified, the code
  * is set to EVENT_CODE_UNDEFINED.
  *
- * On success, events contains nevents events.
+ * On success, events contains nevents events with each event's value set to 1
+ * or 0 depending on the + or - prefix.
  */
 bool
 parse_evcode_property(const char *prop, struct input_event *events, size_t *nevents)
 {
-	char **strv = NULL;
 	bool rc = false;
-	size_t ncodes = 0;
-	size_t idx;
 	/* A randomly chosen max so we avoid crazy quirks */
 	struct input_event evs[32];
 
 	memset(evs, 0, sizeof evs);
 
-	strv = strv_from_string(prop, ";");
-	if (!strv)
-		goto out;
-
-	for (idx = 0; strv[idx]; idx++)
-		ncodes++;
-
-	if (ncodes == 0 || ncodes > ARRAY_LENGTH(evs))
+	size_t ncodes;
+	char **strv = strv_from_string(prop, ";", &ncodes);
+	if (!strv || ncodes == 0 || ncodes > ARRAY_LENGTH(evs))
 		goto out;
 
 	ncodes = min(*nevents, ncodes);
-	for (idx = 0; strv[idx]; idx++) {
+	for (size_t idx = 0; strv[idx]; idx++) {
 		char *s = strv[idx];
+		bool enable;
+
+		switch (*s) {
+		case '+': enable = true; break;
+		case '-': enable = false; break;
+		default:
+			goto out;
+		}
+
+		s++;
 
 		int type, code;
 
@@ -407,6 +410,7 @@ parse_evcode_property(const char *prop, struct input_event *events, size_t *neve
 
 		evs[idx].type = type;
 		evs[idx].code = code;
+		evs[idx].value = enable;
 	}
 
 	memcpy(events, evs, ncodes * sizeof *events);
@@ -419,9 +423,9 @@ out:
 }
 
 /**
- * Parses a string of the format "INPUT_PROP_BUTTONPAD;INPUT_PROP_POINTER;0x123;"
+ * Parses a string of the format "+INPUT_PROP_BUTTONPAD;-INPUT_PROP_POINTER;+0x123;"
  * where each element must be a named input prop OR a hexcode in the form
- * 0x1234
+ * 0x1234. The prefix for each element must be either '+' (enable) or '-' (disable).
  *
  * props must point to an existing array of size nprops.
  * nprops specifies the size of the array in props and returns the number
@@ -431,28 +435,30 @@ out:
  * On success, props contains nprops elements.
  */
 bool
-parse_input_prop_property(const char *prop, unsigned int *props_out, size_t *nprops)
+parse_input_prop_property(const char *prop, struct input_prop *props_out, size_t *nprops)
 {
-	char **strv = NULL;
 	bool rc = false;
-	size_t count = 0;
-	size_t idx;
-	unsigned int props[INPUT_PROP_CNT]; /* doubling up on quirks is a bug */
+	struct input_prop props[INPUT_PROP_CNT]; /* doubling up on quirks is a bug */
 
-	strv = strv_from_string(prop, ";");
-	if (!strv)
-		goto out;
-
-	for (idx = 0; strv[idx]; idx++)
-		count++;
-
-	if (count == 0 || count > ARRAY_LENGTH(props))
+	size_t count;
+	char **strv = strv_from_string(prop, ";", &count);
+	if (!strv || count == 0 || count > ARRAY_LENGTH(props))
 		goto out;
 
 	count = min(*nprops, count);
-	for (idx = 0; strv[idx]; idx++) {
+	for (size_t idx = 0; strv[idx]; idx++) {
 		char *s = strv[idx];
 		unsigned int prop;
+		bool enable;
+
+		switch (*s) {
+		case '+': enable = true; break;
+		case '-': enable = false; break;
+		default:
+			goto out;
+		}
+
+		s++;
 
 		if (safe_atou_base(s, &prop, 16)) {
 			if (prop > INPUT_PROP_MAX)
@@ -463,7 +469,8 @@ parse_input_prop_property(const char *prop, unsigned int *props_out, size_t *npr
 				goto out;
 			prop = (unsigned int)val;
 		}
-		props[idx] = prop;
+		props[idx].prop = prop;
+		props[idx].enabled = enable;
 	}
 
 	memcpy(props_out, props, count * sizeof *props);

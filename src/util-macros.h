@@ -28,8 +28,14 @@
 #include "config.h"
 
 #define ARRAY_LENGTH(a) (sizeof (a) / sizeof (a)[0])
+/**
+ * Iterate through the array _arr, assigning the variable elem to each
+ * element. elem only exists within the loop.
+ */
 #define ARRAY_FOR_EACH(_arr, _elem) \
-	for (size_t _i = 0; _i < ARRAY_LENGTH(_arr) && (_elem = &_arr[_i]); _i++)
+	for (__typeof__((_arr)[0]) *_elem = _arr; \
+	     _elem < (_arr) + ARRAY_LENGTH(_arr); \
+	     _elem++)
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
@@ -49,12 +55,10 @@
 #define ANSI_BRIGHT_CYAN	"\x1B[0;36;1m"
 #define ANSI_NORMAL		"\x1B[0m"
 
-
 #define ANSI_UP			"\x1B[%dA"
 #define ANSI_DOWN		"\x1B[%dB"
 #define ANSI_RIGHT		"\x1B[%dC"
 #define ANSI_LEFT		"\x1B[%dD"
-
 
 #define CASE_RETURN_STRING(a) case a: return #a
 

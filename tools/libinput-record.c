@@ -48,6 +48,7 @@
 #include "libinput-git-version.h"
 #include "shared.h"
 #include "builddir.h"
+#include "util-bits.h"
 #include "util-list.h"
 #include "util-time.h"
 #include "util-input-event.h"
@@ -60,7 +61,7 @@ enum indent {
 	I_NONE = 0,
 	I_TOPLEVEL = 0,
 	I_LIBINPUT = 2,			/* nodes inside libinput: */
-	I_SYSTEM = 0,			/* nodes inside system:   */
+	I_SYSTEM = 2,			/* nodes inside system:   */
 	I_DEVICE = 2,			/* nodes inside devices:  */
 	I_EVDEV = 4,			/* nodes inside evdev:    */
 	I_EVDEV_DATA = 6,		/* nodes below evdev:	  */
@@ -391,9 +392,9 @@ handle_evdev_frame(struct record_device *d)
 			assert(slot < sizeof(d->touch.slot_state) * 8);
 
 			if (e.value != -1)
-				d->touch.slot_state |= 1 << slot;
+				d->touch.slot_state |= bit(slot);
 			else
-				d->touch.slot_state &= ~(1 << slot);
+				d->touch.slot_state &= ~bit(slot);
 		}
 
 		if (e.type == EV_SYN && e.code == SYN_REPORT)
@@ -964,7 +965,6 @@ print_tablet_tool_button_event(struct record_device *dev,
 		abort();
 	}
 
-
 	button = libinput_event_tablet_tool_get_button(t);
 	state = libinput_event_tablet_tool_get_button_state(t);
 	time = time_offset(dev->ctx, libinput_event_tablet_tool_get_time_usec(t));
@@ -1069,7 +1069,6 @@ print_tablet_pad_button_event(struct record_device *dev,
 		mode,
 		libinput_tablet_pad_mode_group_button_is_toggle(group, button) ? "true" : "false"
 	       );
-
 
 }
 
@@ -1290,7 +1289,10 @@ handle_libinput_events(struct record_context *ctx,
 	if (!e)
 		return false;
 
-	iprintf(d->fp, I_EVENTTYPE, "%slibinput:\n", start_frame ? "- " : "");
+	if (start_frame)
+		iprintf(d->fp, I_EVENTTYPE, "- libinput:\n");
+	else
+		iprintf(d->fp, I_EVENTTYPE, "libinput:\n");
 	do {
 		struct libinput_device *device = libinput_event_get_device(e);
 
@@ -1780,9 +1782,13 @@ print_device_quirks(struct record_device *dev)
 				       QLOG_CUSTOM_LOG_PRIORITIES);
 	if (!quirks) {
 		fprintf(stderr,
-			"Failed to initialize the device quirks. "
-			"Please see the above errors "
-			"and/or re-run with --verbose for more details\n");
+			"Failed to load the device quirks from %s%s%s. "
+			"This will negatively affect device behavior. "
+			"See %s/device-quirks.html for details.\n",
+			data_path,
+			override_file ? " and " : "",
+			override_file ? override_file : "",
+			HTTP_DOC_LINK);
 		return;
 	}
 
@@ -1819,7 +1825,6 @@ print_libinput_description(struct record_device *dev)
 		{LIBINPUT_DEVICE_CAP_GESTURE, "gesture"},
 		{LIBINPUT_DEVICE_CAP_SWITCH, "switch"},
 	};
-	struct cap *cap;
 	const char *sep = "";
 
 	if (!device)
@@ -2437,7 +2442,7 @@ static void close_restricted(int fd, void *user_data)
 	close(fd);
 }
 
-const struct libinput_interface interface = {
+static const struct libinput_interface interface = {
 	.open_restricted = open_restricted,
 	.close_restricted = close_restricted,
 };

@@ -136,6 +136,8 @@ struct libinput {
 		struct libinput_source *source;
 		int fd;
 		uint64_t next_expiry;
+
+		struct ratelimit expiry_in_past_limit;
 	} timer;
 
 	struct libinput_event **events;
@@ -229,6 +231,50 @@ struct libinput_device_config_send_events {
 	enum libinput_config_send_events_mode (*get_default_mode)(struct libinput_device *device);
 };
 
+/**
+ * Custom acceleration function min number of points
+ * At least 2 points are required for linear interpolation
+ */
+#define LIBINPUT_ACCEL_NPOINTS_MIN 2
+
+/**
+ * Custom acceleration function max number of points
+ * an arbitrary limit of sample points
+ * it should be more than enough for everyone
+ */
+#define LIBINPUT_ACCEL_NPOINTS_MAX 64
+
+/**
+ * Custom acceleration function min point value
+ */
+#define LIBINPUT_ACCEL_POINT_MIN_VALUE 0
+
+/**
+ * Custom acceleration function max point value
+ */
+#define LIBINPUT_ACCEL_POINT_MAX_VALUE 10000
+
+/**
+ * Custom acceleration function max step size
+ */
+#define LIBINPUT_ACCEL_STEP_MAX 10000
+
+struct libinput_config_accel_custom_func {
+	double step;
+	size_t npoints;
+	double points[LIBINPUT_ACCEL_NPOINTS_MAX];
+};
+
+struct libinput_config_accel {
+	enum libinput_config_accel_profile profile;
+
+	struct  {
+		struct libinput_config_accel_custom_func *fallback;
+		struct libinput_config_accel_custom_func *motion;
+		struct libinput_config_accel_custom_func *scroll;
+	} custom;
+};
+
 struct libinput_device_config_accel {
 	int (*available)(struct libinput_device *device);
 	enum libinput_config_status (*set_speed)(struct libinput_device *device,
@@ -241,6 +287,8 @@ struct libinput_device_config_accel {
 						   enum libinput_config_accel_profile);
 	enum libinput_config_accel_profile (*get_profile)(struct libinput_device *device);
 	enum libinput_config_accel_profile (*get_default_profile)(struct libinput_device *device);
+	enum libinput_config_status (*set_accel_config)(struct libinput_device *device,
+						        struct libinput_config_accel *accel_config);
 };
 
 struct libinput_device_config_natural_scroll {
@@ -304,6 +352,17 @@ struct libinput_device_config_dwt {
 			 struct libinput_device *device);
 };
 
+struct libinput_device_config_dwtp {
+	int (*is_available)(struct libinput_device *device);
+	enum libinput_config_status (*set_enabled)(
+			 struct libinput_device *device,
+			 enum libinput_config_dwtp_state enable);
+	enum libinput_config_dwtp_state (*get_enabled)(
+			 struct libinput_device *device);
+	enum libinput_config_dwtp_state (*get_default_enabled)(
+			 struct libinput_device *device);
+};
+
 struct libinput_device_config_rotation {
 	int (*is_available)(struct libinput_device *device);
 	enum libinput_config_status (*set_angle)(
@@ -331,6 +390,7 @@ struct libinput_device_config {
 	struct libinput_device_config_click_method *click_method;
 	struct libinput_device_config_middle_emulation *middle_emulation;
 	struct libinput_device_config_dwt *dwt;
+	struct libinput_device_config_dwtp *dwtp;
 	struct libinput_device_config_rotation *rotation;
 	struct libinput_device_config_gesture *gesture;
 };
@@ -393,10 +453,8 @@ struct libinput_tablet_tool {
 	void *user_data;
 
 	struct {
-		/* The pressure threshold assumes a pressure_offset of 0 */
-		struct threshold threshold;
-		/* pressure_offset includes axis->minimum */
-		int offset;
+		struct threshold threshold; /* in device coordinates */
+		int offset; /* in device coordinates */
 		bool has_offset;
 	} pressure;
 };
@@ -454,7 +512,6 @@ is_logged(const struct libinput *libinput,
        return libinput->log_handler &&
                libinput->log_priority <= priority;
 }
-
 
 void
 log_msg_ratelimit(struct libinput *libinput,
@@ -865,7 +922,7 @@ xy_get_direction(double x, double y)
 		d1 = (int)(r + 0.9) % 8;
 		d2 = (int)(r + 0.1) % 8;
 
-		dir = (1 << d1) | (1 << d2);
+		dir = bit(d1) | bit(d2);
 	}
 
 	return dir;
@@ -910,6 +967,5 @@ libinput_libwacom_unref(struct libinput *li);
 static inline void *libinput_libwacom_ref(struct libinput *li) { return NULL; }
 static inline void libinput_libwacom_unref(struct libinput *li) {}
 #endif
-
 
 #endif /* LIBINPUT_PRIVATE_H */

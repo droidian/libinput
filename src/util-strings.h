@@ -43,6 +43,8 @@
 #include <xlocale.h>
 #endif
 
+#include "util-macros.h"
+
 static inline bool
 streq(const char *str1, const char *str2)
 {
@@ -253,7 +255,7 @@ safe_atod(const char *str, double *val)
 }
 
 char **strv_from_argv(int argc, char **argv);
-char **strv_from_string(const char *in, const char *separator);
+char **strv_from_string(const char *in, const char *separator, size_t *num_elements);
 char *strv_join(char **strv, const char *joiner);
 
 static inline void
@@ -270,6 +272,47 @@ strv_free(char **strv) {
 	}
 
 	free (strv);
+}
+
+/**
+ * parse a string containing a list of doubles into a double array.
+ *
+ * @param in string to parse
+ * @param separator string used to separate double in list e.g. ","
+ * @param result double array
+ * @param length length of double array
+ * @return true when parsed successfully otherwise false
+ */
+static inline double *
+double_array_from_string(const char *in,
+			 const char *separator,
+			 size_t *length)
+{
+	double *result = NULL;
+	*length = 0;
+
+	size_t nelem;
+	char **strv = strv_from_string(in, separator, &nelem);
+	if (!strv)
+		return result;
+
+	double *numv = zalloc(sizeof(double) * nelem);
+	for (size_t idx = 0; idx < nelem; idx++) {
+		double val;
+		if (!safe_atod(strv[idx], &val))
+			goto out;
+
+		numv[idx] = val;
+	}
+
+	result = numv;
+	numv = NULL;
+	*length = nelem;
+
+out:
+	strv_free(strv);
+	free(numv);
+	return result;
 }
 
 struct key_value_str{
@@ -289,33 +332,26 @@ kv_double_from_string(const char *string,
 		      struct key_value_double **result_out)
 
 {
-	char **pairs;
-	char **pair;
 	struct key_value_double *result = NULL;
-	ssize_t npairs = 0;
-	unsigned int idx = 0;
 
 	if (!pair_separator || pair_separator[0] == '\0' ||
 	    !kv_separator || kv_separator[0] == '\0')
 		return -1;
 
-	pairs = strv_from_string(string, pair_separator);
-	if (!pairs)
-		return -1;
-
-	for (pair = pairs; *pair; pair++)
-		npairs++;
-
-	if (npairs == 0)
+	size_t npairs;
+	char **pairs = strv_from_string(string, pair_separator, &npairs);
+	if (!pairs || npairs == 0)
 		goto error;
 
 	result = zalloc(npairs * sizeof *result);
 
-	for (pair = pairs; *pair; pair++) {
-		char **kv = strv_from_string(*pair, kv_separator);
+	for (size_t idx = 0; idx < npairs; idx++) {
+		char *pair = pairs[idx];
+		size_t nelem;
+		char **kv = strv_from_string(pair, kv_separator, &nelem);
 		double k, v;
 
-		if (!kv || !kv[0] || !kv[1] || kv[2] ||
+		if (!kv || nelem != 2 ||
 		    !safe_atod(kv[0], &k) ||
 		    !safe_atod(kv[1], &v)) {
 			strv_free(kv);
@@ -324,7 +360,6 @@ kv_double_from_string(const char *string,
 
 		result[idx].key = k;
 		result[idx].value = v;
-		idx++;
 
 		strv_free(kv);
 	}
@@ -398,3 +433,31 @@ safe_basename(const char *filename);
 
 char *
 trunkname(const char *filename);
+
+/**
+ * Return a copy of str with all % converted to %% to make the string
+ * acceptable as printf format.
+ */
+static inline char *
+str_sanitize(const char *str)
+{
+	if (!str)
+		return NULL;
+
+	if (!strchr(str, '%'))
+		return strdup(str);
+
+	size_t slen = min(strlen(str), 512);
+	char *sanitized = zalloc(2 * slen + 1);
+	const char *src = str;
+	char *dst = sanitized;
+
+	for (size_t i = 0; i < slen; i++) {
+		if (*src == '%')
+			*dst++ = '%';
+		*dst++ = *src++;
+	}
+	*dst = '\0';
+
+	return sanitized;
+}

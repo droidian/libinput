@@ -170,6 +170,8 @@ struct evdev_device {
 	struct udev_device *udev_device;
 	char *output_name;
 	const char *devname;
+	char *log_prefix_name;
+	char *sysname;
 	bool was_removed;
 	int fd;
 	enum evdev_device_seat_capability seat_caps;
@@ -336,7 +338,6 @@ struct evdev_dispatch_interface {
 					      struct evdev_device *device,
 					      const struct phys_rect *rect,
 					      uint64_t now);
-
 
 	/* Return the state of the given switch */
 	enum libinput_switch_state
@@ -787,7 +788,7 @@ evdev_log_msg(struct evdev_device *device,
 		 sizeof(buf),
 		 "%-7s - %s%s%s",
 		 evdev_device_get_sysname(device),
-		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  device->devname : "",
+		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  device->log_prefix_name : "",
 		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  ": " : "",
 		 format);
 
@@ -825,7 +826,7 @@ evdev_log_msg_ratelimit(struct evdev_device *device,
 		 sizeof(buf),
 		 "%-7s - %s%s%s",
 		 evdev_device_get_sysname(device),
-		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  device->devname : "",
+		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  device->log_prefix_name : "",
 		 (priority > LIBINPUT_LOG_PRIORITY_DEBUG) ?  ": " : "",
 		 format);
 

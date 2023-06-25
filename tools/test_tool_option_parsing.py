@@ -210,6 +210,7 @@ options = {
         "natural-scrolling",
         "left-handed",
         "dwt",
+        "dwtp",
     ],
     # options with distinct values
     "enums": {
@@ -367,7 +368,8 @@ def main():
     try:
         import xdist  # noqa
 
-        args += ["-n", "auto"]
+        ncores = os.environ.get("FDO_CI_CONCURRENT", "auto")
+        args += ["-n", ncores]
     except ImportError:
         logger.info("python-xdist missing, this test will be slow")
         pass

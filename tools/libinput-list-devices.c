@@ -205,11 +205,13 @@ accel_profiles(struct libinput_device *device)
 
 	profile = libinput_device_config_accel_get_default_profile(device);
 	xasprintf(&str,
-		  "%s%s %s%s",
+		  "%s%s %s%s %s%s",
 		  (profile == LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT) ? "*" : "",
 		  (profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT) ? "flat" : "",
 		  (profile == LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE) ? "*" : "",
-		  (profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE) ? "adaptive" : "");
+		  (profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE) ? "adaptive" : "",
+		  (profile == LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM) ? "*" : "",
+		  (profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM) ? "custom" : "");
 
 	return str;
 }
@@ -221,6 +223,18 @@ dwt_default(struct libinput_device *device)
 		return "n/a";
 
 	if (libinput_device_config_dwt_get_default_enabled(device))
+		return "enabled";
+
+	return "disabled";
+}
+
+static const char *
+dwtp_default(struct libinput_device *device)
+{
+	if (!libinput_device_config_dwtp_is_available(device))
+		return "n/a";
+
+	if (libinput_device_config_dwtp_get_default_enabled(device))
 		return "enabled";
 
 	return "disabled";
@@ -344,6 +358,7 @@ print_device_notify(struct libinput_event *ev)
 	free(str);
 
 	printf("Disable-w-typing: %s\n", dwt_default(dev));
+	printf("Disable-w-trackpointing: %s\n", dwtp_default(dev));
 
 	str = accel_profiles(dev);
 	printf("Accel profiles:   %s\n", str);

@@ -30,6 +30,7 @@
 #include <libinput.h>
 #include <math.h>
 #include <unistd.h>
+#include <valgrind/valgrind.h>
 
 #include "libinput-util.h"
 #include "litest.h"
@@ -632,6 +633,7 @@ test_high_and_low_wheel_events_value(struct litest_device *dev,
 				LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL;
 
 	event = libinput_get_event(li);
+	litest_assert_notnull(event);
 
 	while(event) {
 		ptrev = litest_is_axis_event(event,
@@ -701,54 +703,6 @@ START_TEST(pointer_scroll_wheel)
 }
 END_TEST
 
-START_TEST(pointer_scroll_wheel_pressed_noscroll)
-{
-	struct litest_device *dev = litest_current_device();
-	struct libinput *li = dev->libinput;
-
-	litest_drain_events(li);
-
-	litest_button_click_debounced(dev, li, BTN_MIDDLE, true);
-	litest_drain_events(li);
-
-	for (int i = 0; i < 10; i++) {
-		litest_event(dev, EV_REL, REL_WHEEL, 1);
-		litest_event(dev, EV_REL, REL_HWHEEL, 1);
-		litest_event(dev, EV_SYN, SYN_REPORT, 0);
-	}
-
-	libinput_dispatch(li);
-
-	litest_assert_empty_queue(li);
-
-	litest_button_click_debounced(dev, li, BTN_MIDDLE, false);
-}
-END_TEST
-
-START_TEST(pointer_scroll_hi_res_wheel_pressed_noscroll)
-{
-	struct litest_device *dev = litest_current_device();
-	struct libinput *li = dev->libinput;
-
-	litest_drain_events(li);
-
-	litest_button_click_debounced(dev, li, BTN_MIDDLE, true);
-	litest_drain_events(li);
-
-	for (int i = 0; i < 10; i++) {
-		litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 12);
-		litest_event(dev, EV_REL, REL_HWHEEL_HI_RES, 12);
-		litest_event(dev, EV_SYN, SYN_REPORT, 0);
-	}
-
-	libinput_dispatch(li);
-
-	litest_assert_empty_queue(li);
-
-	litest_button_click_debounced(dev, li, BTN_MIDDLE, false);
-}
-END_TEST
-
 static void
 test_hi_res_wheel_event(struct litest_device *dev, int which, int v120_amount)
 {
@@ -796,46 +750,67 @@ START_TEST(pointer_scroll_wheel_hires)
 		test_hi_res_wheel_event(dev, axis, 6 * 120);
 
 		test_hi_res_wheel_event(dev, axis, 30);
-		test_hi_res_wheel_event(dev, axis, -40);
 		test_hi_res_wheel_event(dev, axis, -60);
+		test_hi_res_wheel_event(dev, axis, -40);
 		test_hi_res_wheel_event(dev, axis, 180);
 	}
 }
 END_TEST
 
-START_TEST(pointer_scroll_wheel_hires_send_only_lores_vertical)
+START_TEST(pointer_scroll_wheel_hires_send_only_lores)
 {
 	struct litest_device *dev = litest_current_device();
 	struct libinput *li = dev->libinput;
+	enum libinput_pointer_axis axis = _i; /* ranged test */
+	unsigned int lores_code, hires_code;
+	int direction;
 
-	if (!libevdev_has_event_code(dev->evdev, EV_REL, REL_WHEEL_HI_RES) &&
-	    !libevdev_has_event_code(dev->evdev, EV_REL, REL_HWHEEL_HI_RES))
+	switch (axis) {
+		case LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL:
+			lores_code = REL_WHEEL;
+			hires_code = REL_WHEEL_HI_RES;
+			direction = -1;
+			break;
+		case LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL:
+			lores_code = REL_HWHEEL;
+			hires_code = REL_HWHEEL_HI_RES;
+			direction = 1;
+			break;
+		default:
+			abort();
+	}
+
+	if (!libevdev_has_event_code(dev->evdev, EV_REL, lores_code) &&
+	    !libevdev_has_event_code(dev->evdev, EV_REL, hires_code))
 		return;
 
+	/* Device claims to have HI_RES, but doesn't send events for it. Make
+	 * sure we handle this correctly.
+	 */
 	litest_drain_events(dev->libinput);
 	litest_set_log_handler_bug(li);
 
-	litest_event(dev, EV_REL, REL_WHEEL, 1);
+	litest_event(dev, EV_REL, lores_code, 1);
 	litest_event(dev, EV_SYN, SYN_REPORT, 0);
 	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_WHEEL, -120);
+	test_high_and_low_wheel_events_value(dev, lores_code, direction * 120);
 
-	litest_event(dev, EV_REL, REL_WHEEL, -1);
+	litest_event(dev, EV_REL, lores_code, -1);
 	litest_event(dev, EV_SYN, SYN_REPORT, 0);
 	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_WHEEL, 120);
+	test_high_and_low_wheel_events_value(dev, lores_code, direction * -120);
 
-	litest_event(dev, EV_REL, REL_HWHEEL, 1);
+	litest_event(dev, EV_REL, lores_code, 2);
 	litest_event(dev, EV_SYN, SYN_REPORT, 0);
 	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_HWHEEL, 120);
+	test_high_and_low_wheel_events_value(dev, lores_code, direction * 240);
 
 	litest_assert_empty_queue(li);
 	litest_restore_log_handler(li);
 }
 END_TEST
 
-START_TEST(pointer_scroll_wheel_hires_send_only_lores_horizontal)
+START_TEST(pointer_scroll_wheel_inhibit_small_deltas)
 {
 	struct litest_device *dev = litest_current_device();
 	struct libinput *li = dev->libinput;
@@ -845,25 +820,145 @@ START_TEST(pointer_scroll_wheel_hires_send_only_lores_horizontal)
 		return;
 
 	litest_drain_events(dev->libinput);
-	litest_set_log_handler_bug(li);
 
-	litest_event(dev, EV_REL, REL_HWHEEL, 2);
+	/* Scroll deltas below the threshold (60) must be ignored */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 15);
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 15);
 	litest_event(dev, EV_SYN, SYN_REPORT, 0);
 	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_HWHEEL, 240);
-
-	litest_event(dev, EV_REL, REL_WHEEL, -1);
-	litest_event(dev, EV_SYN, SYN_REPORT, 0);
-	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_WHEEL, 120);
-
-	litest_event(dev, EV_REL, REL_HWHEEL, 1);
-	litest_event(dev, EV_SYN, SYN_REPORT, 0);
-	libinput_dispatch(li);
-	test_high_and_low_wheel_events_value(dev, REL_HWHEEL, 120);
-
 	litest_assert_empty_queue(li);
-	litest_restore_log_handler(li);
+
+	/* The accumulated scroll is 30, add 30 to trigger scroll */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 30);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	test_high_and_low_wheel_events_value(dev, REL_WHEEL_HI_RES, -60);
+
+	/* Once the threshold is reached, small scroll deltas are reported */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 5);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	test_high_and_low_wheel_events_value(dev, REL_WHEEL_HI_RES, -5);
+
+	/* When the scroll timeout is triggered, ignore small deltas again */
+	litest_timeout_wheel_scroll();
+
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, -15);
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, -15);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	litest_assert_empty_queue(li);
+
+	litest_event(dev, EV_REL, REL_HWHEEL_HI_RES, 15);
+	litest_event(dev, EV_REL, REL_HWHEEL_HI_RES, 15);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	litest_assert_empty_queue(li);
+}
+END_TEST
+
+START_TEST(pointer_scroll_wheel_inhibit_dir_change)
+{
+	struct litest_device *dev = litest_current_device();
+	struct libinput *li = dev->libinput;
+
+	if (!libevdev_has_event_code(dev->evdev, EV_REL, REL_WHEEL_HI_RES) &&
+	    !libevdev_has_event_code(dev->evdev, EV_REL, REL_HWHEEL_HI_RES))
+		return;
+
+	litest_drain_events(dev->libinput);
+
+	/* Scroll one detent and a bit */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 120);
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 30);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	test_high_and_low_wheel_events_value(dev, REL_WHEEL_HI_RES, -150);
+
+	/* Scroll below the threshold in the oposite direction should be ignored */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, -30);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	litest_assert_empty_queue(li);
+
+	/* But should be triggered if the scroll continues in the same direction */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, -120);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	test_high_and_low_wheel_events_value(dev, REL_WHEEL_HI_RES, 150);
+
+	/* Scroll above the threshold in the same dir should be triggered */
+	litest_event(dev, EV_REL, REL_WHEEL_HI_RES, 80);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+	test_high_and_low_wheel_events_value(dev, REL_WHEEL_HI_RES, -80);
+}
+END_TEST
+
+START_TEST(pointer_scroll_wheel_lenovo_scrollpoint)
+{
+	struct litest_device *dev = litest_current_device();
+	struct libinput *li = dev->libinput;
+	struct libinput_event *event;
+	struct libinput_event_pointer *ptrev;
+	double v;
+
+	litest_drain_events(dev->libinput);
+
+	/* Lenovo ScrollPoint has a trackstick instead of a wheel, data sent
+	 * via REL_WHEEL is close to x/y coordinate space.
+	 */
+	litest_event(dev, EV_REL, REL_WHEEL, 30);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	litest_event(dev, EV_REL, REL_WHEEL, -60);
+	litest_event(dev, EV_SYN, SYN_REPORT, 0);
+	libinput_dispatch(li);
+
+	/* Hi-res scroll event first */
+	event = libinput_get_event(li);
+	litest_assert(litest_is_high_res_axis_event(event));
+	ptrev = litest_is_axis_event(event,
+				     LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS,
+				     LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL,
+				     LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS);
+
+	v = libinput_event_pointer_get_scroll_value(ptrev, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+	litest_assert_double_eq(v, -30.0);
+	libinput_event_destroy(event);
+
+	/* legacy lo-res scroll event */
+	event = libinput_get_event(li);
+	litest_assert(!litest_is_high_res_axis_event(event));
+	ptrev = litest_is_axis_event(event,
+				     LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS,
+				     LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL,
+				     LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS);
+	v = libinput_event_pointer_get_axis_value(ptrev, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+	litest_assert_double_eq(v, -30.0);
+	libinput_event_destroy(event);
+
+	/* Hi-res scroll event first */
+	event = libinput_get_event(li);
+	ptrev = litest_is_axis_event(event,
+				     LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS,
+				     LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL,
+				     LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS);
+
+	v = libinput_event_pointer_get_scroll_value(ptrev, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+	litest_assert_double_eq(v, 60.0);
+	libinput_event_destroy(event);
+
+	/* legacy lo-res scroll event */
+	event = libinput_get_event(li);
+	litest_assert(!litest_is_high_res_axis_event(event));
+	ptrev = litest_is_axis_event(event,
+				     LIBINPUT_EVENT_POINTER_SCROLL_CONTINUOUS,
+				     LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL,
+				     LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS);
+	v = libinput_event_pointer_get_axis_value(ptrev, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL);
+	litest_assert_double_eq(v, 60.0);
+	libinput_event_destroy(event);
+
 }
 END_TEST
 
@@ -1931,7 +2026,8 @@ START_TEST(pointer_scroll_nowheel_defaults)
 
 	/* button scrolling is only enabled if there is a
 	   middle button present */
-	if (libinput_device_pointer_has_button(device, BTN_MIDDLE))
+	if (libinput_device_pointer_has_button(device, BTN_MIDDLE) &&
+	    dev->which != LITEST_LENOVO_SCROLLPOINT)
 		expected = LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN;
 	else
 		expected = LIBINPUT_CONFIG_SCROLL_NO_SCROLL;
@@ -2124,6 +2220,7 @@ START_TEST(pointer_accel_profile_defaults)
 	profiles = libinput_device_config_accel_get_profiles(device);
 	ck_assert(profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE);
 	ck_assert(profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT);
+	ck_assert(profiles & LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
 
 	status = libinput_device_config_accel_set_profile(device,
 							  LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT);
@@ -2139,6 +2236,106 @@ START_TEST(pointer_accel_profile_defaults)
 	ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_SUCCESS);
 	profile = libinput_device_config_accel_get_profile(device);
 	ck_assert_int_eq(profile, LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE);
+
+	status = libinput_device_config_accel_set_profile(device,
+							  LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+	ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_SUCCESS);
+	profile = libinput_device_config_accel_get_profile(device);
+	ck_assert_int_eq(profile, LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+}
+END_TEST
+
+START_TEST(pointer_accel_config_reset_to_defaults)
+{
+	struct litest_device *dev = litest_current_device();
+	struct libinput_device *device = dev->libinput_device;
+	double default_speed = libinput_device_config_accel_get_default_speed(device);
+
+	/* There are no settings for these profiles to toggle, so we expect it
+	 * to simply reset to defaults */
+	enum libinput_config_accel_profile profiles[] = {
+		LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE,
+		LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT,
+	};
+
+	ARRAY_FOR_EACH(profiles, profile) {
+		ck_assert_int_eq(libinput_device_config_accel_set_speed(device, 1.0),
+				 LIBINPUT_CONFIG_STATUS_SUCCESS);
+
+		ck_assert_double_eq(libinput_device_config_accel_get_speed(device), 1.0);
+
+		struct libinput_config_accel *config =
+			libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE);
+		ck_assert_int_eq(libinput_device_config_accel_apply(device, config),
+				 LIBINPUT_CONFIG_STATUS_SUCCESS);
+		ck_assert_double_eq(libinput_device_config_accel_get_speed(device),
+				    default_speed);
+		libinput_config_accel_destroy(config);
+	}
+}
+END_TEST
+
+START_TEST(pointer_accel_config)
+{
+	struct litest_device *dev = litest_current_device();
+	struct libinput_device *device = dev->libinput_device;
+	enum libinput_config_status status;
+	enum libinput_config_accel_profile profile;
+	enum libinput_config_status valid = LIBINPUT_CONFIG_STATUS_SUCCESS,
+				    invalid = LIBINPUT_CONFIG_STATUS_INVALID;
+	enum libinput_config_accel_type accel_types[] = {
+		LIBINPUT_ACCEL_TYPE_FALLBACK,
+		LIBINPUT_ACCEL_TYPE_MOTION,
+		LIBINPUT_ACCEL_TYPE_SCROLL,
+	};
+	struct custom_config_test {
+		double step;
+		double points[4];
+		enum libinput_config_status expected_status;
+	} tests[] = {
+		{ 0.5,   { 1.0, 2.0, 2.5, 2.6 },  valid },
+		{ 0.003, { 0.1, 0.3, 0.4, 0.45 }, valid },
+		{ 2.7,   { 1.0, 3.0, 4.5, 4.5 },  valid },
+		{ 0,     { 1.0, 2.0, 2.5, 2.6 },  invalid },
+		{ -1,    { 1.0, 2.0, 2.5, 2.6 },  invalid },
+		{ 1e10,  { 1.0, 2.0, 2.5, 2.6 },  invalid },
+		{ 1,     { 1.0, 2.0, -2.5, 2.6 }, invalid },
+		{ 1,     { 1.0, 2.0, 1e10, 2.6 }, invalid },
+	};
+
+	ck_assert(libinput_device_config_accel_is_available(device));
+
+	struct libinput_config_accel *config_custom_default =
+		libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+	struct libinput_config_accel *config_custom_changed =
+		libinput_config_accel_create(LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+
+	ck_assert_ptr_nonnull(config_custom_default);
+	ck_assert_ptr_nonnull(config_custom_changed);
+
+	ARRAY_FOR_EACH(tests, t) {
+		ARRAY_FOR_EACH(accel_types, accel_type) {
+			status = libinput_config_accel_set_points(config_custom_changed,
+								  *accel_type,
+								  t->step,
+								  ARRAY_LENGTH(t->points),
+								  t->points);
+			ck_assert_int_eq(status, t->expected_status);
+
+			status = libinput_device_config_accel_apply(device, config_custom_changed);
+			ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_SUCCESS);
+			profile = libinput_device_config_accel_get_profile(device);
+			ck_assert_int_eq(profile, LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+
+			status = libinput_device_config_accel_apply(device, config_custom_default);
+			ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_SUCCESS);
+			profile = libinput_device_config_accel_get_profile(device);
+			ck_assert_int_eq(profile, LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM);
+		}
+	}
+
+	libinput_config_accel_destroy(config_custom_default);
+	libinput_config_accel_destroy(config_custom_changed);
 }
 END_TEST
 
@@ -2160,6 +2357,10 @@ START_TEST(pointer_accel_profile_invalid)
 
 	status = libinput_device_config_accel_set_profile(device,
 			   LIBINPUT_CONFIG_ACCEL_PROFILE_ADAPTIVE |LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT);
+	ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_INVALID);
+
+	status = libinput_device_config_accel_set_profile(device,
+			   LIBINPUT_CONFIG_ACCEL_PROFILE_CUSTOM |LIBINPUT_CONFIG_ACCEL_PROFILE_FLAT);
 	ck_assert_int_eq(status, LIBINPUT_CONFIG_STATUS_INVALID);
 }
 END_TEST
@@ -3478,6 +3679,8 @@ TEST_COLLECTION(pointer)
 	struct range compass = {0, 7}; /* cardinal directions */
 	struct range buttons = {BTN_LEFT, BTN_TASK + 1};
 	struct range buttonorder = {0, _MB_BUTTONORDER_COUNT};
+	struct range scroll_directions = {LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL,
+					  LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL + 1};
 
 	litest_add(pointer_motion_relative, LITEST_RELATIVE, LITEST_POINTINGSTICK);
 	litest_add_for_device(pointer_motion_relative_zero, LITEST_MOUSE);
@@ -3490,11 +3693,11 @@ TEST_COLLECTION(pointer)
 	litest_add_for_device(pointer_button_has_no_button, LITEST_KEYBOARD);
 	litest_add(pointer_recover_from_lost_button_count, LITEST_BUTTON, LITEST_CLICKPAD);
 	litest_add(pointer_scroll_wheel, LITEST_WHEEL, LITEST_TABLET);
-	litest_add_for_device(pointer_scroll_wheel_pressed_noscroll, LITEST_MOUSE);
-	litest_add_for_device(pointer_scroll_hi_res_wheel_pressed_noscroll, LITEST_MOUSE);
 	litest_add(pointer_scroll_wheel_hires, LITEST_WHEEL, LITEST_TABLET);
-	litest_add(pointer_scroll_wheel_hires_send_only_lores_vertical, LITEST_WHEEL, LITEST_TABLET);
-	litest_add(pointer_scroll_wheel_hires_send_only_lores_horizontal, LITEST_WHEEL, LITEST_TABLET);
+	litest_add_ranged(pointer_scroll_wheel_hires_send_only_lores, LITEST_WHEEL, LITEST_TABLET, &scroll_directions);
+	litest_add(pointer_scroll_wheel_inhibit_small_deltas, LITEST_WHEEL, LITEST_TABLET);
+	litest_add(pointer_scroll_wheel_inhibit_dir_change, LITEST_WHEEL, LITEST_TABLET);
+	litest_add_for_device(pointer_scroll_wheel_lenovo_scrollpoint, LITEST_LENOVO_SCROLLPOINT);
 	litest_add(pointer_scroll_button, LITEST_RELATIVE|LITEST_BUTTON, LITEST_ANY);
 	litest_add(pointer_scroll_button_noscroll, LITEST_ABSOLUTE|LITEST_BUTTON, LITEST_RELATIVE);
 	litest_add(pointer_scroll_button_noscroll, LITEST_ANY, LITEST_RELATIVE|LITEST_BUTTON);
@@ -3535,6 +3738,8 @@ TEST_COLLECTION(pointer)
 	litest_add(pointer_accel_direction_change, LITEST_RELATIVE, LITEST_POINTINGSTICK);
 	litest_add(pointer_accel_profile_defaults, LITEST_RELATIVE, LITEST_TOUCHPAD);
 	litest_add(pointer_accel_profile_defaults, LITEST_TOUCHPAD, LITEST_ANY);
+	litest_add(pointer_accel_config_reset_to_defaults, LITEST_RELATIVE, LITEST_ANY);
+	litest_add(pointer_accel_config, LITEST_RELATIVE, LITEST_ANY);
 	litest_add(pointer_accel_profile_invalid, LITEST_RELATIVE, LITEST_ANY);
 	litest_add(pointer_accel_profile_noaccel, LITEST_ANY, LITEST_TOUCHPAD|LITEST_RELATIVE|LITEST_TABLET);
 	litest_add(pointer_accel_profile_flat_motion_relative, LITEST_RELATIVE, LITEST_TOUCHPAD);
@@ -3560,11 +3765,14 @@ TEST_COLLECTION(pointer)
 	litest_add(pointer_time_usec, LITEST_RELATIVE, LITEST_ANY);
 
 	litest_add_ranged(debounce_bounce, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE, &buttons);
-	litest_add_ranged(debounce_bounce_high_delay, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE, &buttons);
+	/* Timing-sensitive test, valgrind is too slow */
+	if (!RUNNING_ON_VALGRIND)
+		litest_add_ranged(debounce_bounce_high_delay, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE, &buttons);
 	litest_add(debounce_bounce_check_immediate, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
 	litest_add_ranged(debounce_spurious, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE, &buttons);
 	litest_add(debounce_spurious_multibounce, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
-	litest_add(debounce_spurious_trigger_high_delay, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
+	if (!RUNNING_ON_VALGRIND)
+		litest_add(debounce_spurious_trigger_high_delay, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
 	litest_add(debounce_spurious_dont_enable_on_otherbutton, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
 	litest_add(debounce_spurious_cancel_debounce_otherbutton, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);
 	litest_add(debounce_spurious_switch_to_otherbutton, LITEST_BUTTON, LITEST_TOUCHPAD|LITEST_NO_DEBOUNCE);

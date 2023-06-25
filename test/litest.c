@@ -80,10 +80,10 @@ static bool in_debugger = false;
 static bool verbose = false;
 static bool run_deviceless = false;
 static bool use_system_rules_quirks = false;
-const char *filter_test = NULL;
-const char *filter_device = NULL;
-const char *filter_group = NULL;
-const char *xml_prefix = NULL;
+static const char *filter_test = NULL;
+static const char *filter_device = NULL;
+static const char *filter_group = NULL;
+static const char *xml_prefix = NULL;
 static struct quirks_context *quirks_context;
 
 struct created_file {
@@ -91,8 +91,8 @@ struct created_file {
 	char *path;
 };
 
-struct list created_files_list; /* list of all files to remove at the end of
-				   the test run */
+static struct list created_files_list; /* list of all files to remove at the end
+					  of the test run */
 
 static void litest_init_udev_rules(struct list *created_files_list);
 static void litest_remove_udev_rules(struct list *created_files_list);
@@ -319,7 +319,7 @@ void litest_generic_device_teardown(void)
 	current_device = NULL;
 }
 
-struct list devices;
+static struct list devices;
 
 static struct list all_tests;
 
@@ -854,7 +854,7 @@ close_restricted(int fd, void *userdata)
 	close(fd);
 }
 
-struct libinput_interface interface = {
+static struct libinput_interface interface = {
 	.open_restricted = open_restricted,
 	.close_restricted = close_restricted,
 };
@@ -2542,6 +2542,36 @@ litest_tablet_motion(struct litest_device *d, int x, int y, struct axis_replacem
 }
 
 void
+litest_tablet_tip_down(struct litest_device *d,
+		       int x, int y,
+		       struct axis_replacement *axes)
+{
+	/* If the test device overrides tip_down and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_tip_down &&
+	    d->interface->tablet_tip_down(d, x, y, axes))
+		return;
+
+	litest_event(d, EV_KEY, BTN_TOUCH, 1);
+	litest_tablet_motion(d, x, y, axes);
+}
+
+void
+litest_tablet_tip_up(struct litest_device *d,
+		     int x, int y,
+		     struct axis_replacement *axes)
+{
+	/* If the test device overrides tip_down and says it didn't
+	 * handle the event, let's continue normally */
+	if (d->interface->tablet_tip_up &&
+	    d->interface->tablet_tip_up(d, x, y, axes))
+		return;
+
+	litest_event(d, EV_KEY, BTN_TOUCH, 0);
+	litest_tablet_motion(d, x, y, axes);
+}
+
+void
 litest_touch_move_two_touches(struct litest_device *d,
 			      double x0, double y0,
 			      double x1, double y1,
@@ -2704,7 +2734,6 @@ litest_button_click(struct litest_device *d,
 		    unsigned int button,
 		    bool is_press)
 {
-	struct input_event *ev;
 	struct input_event click[] = {
 		{ .type = EV_KEY, .code = button, .value = is_press ? 1 : 0 },
 		{ .type = EV_SYN, .code = SYN_REPORT, .value = 0 },
@@ -2773,7 +2802,6 @@ litest_button_scroll_locked(struct litest_device *dev,
 void
 litest_keyboard_key(struct litest_device *d, unsigned int key, bool is_press)
 {
-	struct input_event *ev;
 	struct input_event click[] = {
 		{ .type = EV_KEY, .code = key, .value = is_press ? 1 : 0 },
 		{ .type = EV_SYN, .code = SYN_REPORT, .value = 0 },
@@ -4297,6 +4325,12 @@ void
 litest_timeout_finger_switch(void)
 {
 	msleep(120);
+}
+
+void
+litest_timeout_wheel_scroll(void)
+{
+	msleep(600);
 }
 
 void

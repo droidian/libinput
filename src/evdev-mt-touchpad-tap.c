@@ -139,9 +139,9 @@ tp_tap_notify(struct tp_dispatch *tp,
 	button = button_map[tp->tap.map][nfingers - 1];
 
 	if (state == LIBINPUT_BUTTON_STATE_PRESSED)
-		tp->tap.buttons_pressed |= (1 << nfingers);
+		tp->tap.buttons_pressed |= bit(nfingers);
 	else
-		tp->tap.buttons_pressed &= ~(1 << nfingers);
+		tp->tap.buttons_pressed &= ~bit(nfingers);
 
 	evdev_pointer_notify_button(tp->device,
 				    time,
@@ -1261,14 +1261,6 @@ tp_tap_handle_state(struct tp_dispatch *tp, uint64_t time)
 			t->tap.initial = t->point;
 			tp->tap.nfingers_down++;
 			tp_tap_handle_event(tp, t, TAP_EVENT_TOUCH, time);
-
-			/* If we think this is a palm, pretend there's a
-			 * motion event which will prevent tap clicks
-			 * without requiring extra states in the FSM.
-			 */
-			if (tp_palm_tap_is_palm(tp, t))
-				tp_tap_handle_event(tp, t, TAP_EVENT_MOTION, time);
-
 		} else if (t->state == TOUCH_END) {
 			if (t->was_down) {
 				assert(tp->tap.nfingers_down >= 1);
@@ -1603,7 +1595,7 @@ tp_release_all_taps(struct tp_dispatch *tp, uint64_t now)
 	int i;
 
 	for (i = 1; i <= 3; i++) {
-		if (tp->tap.buttons_pressed & (1 << i))
+		if (tp->tap.buttons_pressed & bit(i))
 			tp_tap_notify(tp, now, i, LIBINPUT_BUTTON_STATE_RELEASED);
 	}
 

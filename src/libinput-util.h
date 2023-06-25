@@ -31,7 +31,6 @@
 #warning "libinput relies on assert(). #defining NDEBUG is not recommended"
 #endif
 
-
 #include "libinput.h"
 
 #include "util-bits.h"
@@ -65,5 +64,6 @@
 	} while (0)
 
 #define LIBINPUT_EXPORT __attribute__ ((visibility("default")))
+#define LIBINPUT_UNUSED __attribute__ ((unused))
 
 #endif /* LIBINPUT_UTIL_H */

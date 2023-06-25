@@ -70,18 +70,6 @@ fallback_notify_physical_button(struct fallback_dispatch *dispatch,
 				int button,
 				enum libinput_button_state state)
 {
-	if (button == BTN_MIDDLE)
-		dispatch->wheel.is_inhibited = (state == LIBINPUT_BUTTON_STATE_PRESSED);
-
-	/* Lenovo TrackPoint Keyboard II sends its own scroll events when its
-	 * trackpoint is moved while the middle button is pressed.
-	 * Do not inhibit the scroll events.
-	 * https://gitlab.freedesktop.org/libinput/libinput/-/issues/651
-	 */
-	if (evdev_device_has_model_quirk(device,
-					 QUIRK_MODEL_LENOVO_TRACKPOINT_KEYBOARD_2))
-		dispatch->wheel.is_inhibited = false;
-
 	evdev_pointer_notify_physical_button(device, time, button, state);
 }
 
@@ -104,19 +92,10 @@ fallback_interface_get_switch_state(struct evdev_dispatch *evdev_dispatch,
 			LIBINPUT_SWITCH_STATE_OFF;
 }
 
-static inline void
-normalize_delta(struct evdev_device *device,
-		const struct device_coords *delta,
-		struct normalized_coords *normalized)
-{
-	normalized->x = delta->x * DEFAULT_MOUSE_DPI / (double)device->dpi;
-	normalized->y = delta->y * DEFAULT_MOUSE_DPI / (double)device->dpi;
-}
-
 static inline bool
-post_trackpoint_scroll(struct evdev_device *device,
-		       struct normalized_coords unaccel,
-		       uint64_t time)
+post_button_scroll(struct evdev_device *device,
+		   struct device_float_coords raw,
+		   uint64_t time)
 {
 	if (device->scroll.method != LIBINPUT_CONFIG_SCROLL_ON_BUTTON_DOWN)
 		return false;
@@ -134,9 +113,16 @@ post_trackpoint_scroll(struct evdev_device *device,
 		device->scroll.button_scroll_state = BUTTONSCROLL_SCROLLING;
 		_fallthrough_;
 	case BUTTONSCROLL_SCROLLING:
+		{
+		const struct normalized_coords normalized =
+				filter_dispatch_scroll(device->pointer.filter,
+						       &raw,
+						       device,
+						       time);
 		evdev_post_scroll(device, time,
 				  LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS,
-				  &unaccel);
+				  &normalized);
+		}
 		return true;
 	}
 
@@ -167,20 +153,18 @@ fallback_filter_defuzz_touch(struct fallback_dispatch *dispatch,
 	return false;
 }
 
-static inline void
+static inline struct device_float_coords
 fallback_rotate_relative(struct fallback_dispatch *dispatch,
 			 struct evdev_device *device)
 {
-	struct device_coords rel = dispatch->rel;
+	struct device_float_coords rel = { dispatch->rel.x, dispatch->rel.y };
 
 	if (!device->base.config.rotation)
-		return;
+		return rel;
 
-	/* loss of precision for non-90 degrees, but we only support 90 deg
-	 * right now anyway */
-	matrix_mult_vec(&dispatch->rotation.matrix, &rel.x, &rel.y);
+	matrix_mult_vec_double(&dispatch->rotation.matrix, &rel.x, &rel.y);
 
-	dispatch->rel = rel;
+	return rel;
 }
 
 static void
@@ -189,22 +173,18 @@ fallback_flush_relative_motion(struct fallback_dispatch *dispatch,
 			       uint64_t time)
 {
 	struct libinput_device *base = &device->base;
-	struct normalized_coords accel, unaccel;
-	struct device_float_coords raw;
+	struct normalized_coords accel;
 
 	if (!(device->seat_caps & EVDEV_DEVICE_POINTER))
 		return;
 
-	fallback_rotate_relative(dispatch, device);
+	struct device_float_coords raw = fallback_rotate_relative(dispatch, device);
 
-	normalize_delta(device, &dispatch->rel, &unaccel);
-	raw.x = dispatch->rel.x;
-	raw.y = dispatch->rel.y;
 	dispatch->rel.x = 0;
 	dispatch->rel.y = 0;
 
 	/* Use unaccelerated deltas for pointing stick scroll */
-	if (post_trackpoint_scroll(device, unaccel, time))
+	if (post_button_scroll(device, raw, time))
 		return;
 
 	if (device->pointer.filter) {
@@ -216,117 +196,13 @@ fallback_flush_relative_motion(struct fallback_dispatch *dispatch,
 	} else {
 		evdev_log_bug_libinput(device,
 				       "accel filter missing\n");
-		accel = unaccel;
+		accel.x = accel.y = 0;
 	}
 
-	if (normalized_is_zero(accel) && normalized_is_zero(unaccel))
+	if (normalized_is_zero(accel))
 		return;
 
 	pointer_notify_motion(base, time, &accel, &raw);
-}
-
-static void
-fallback_flush_wheels(struct fallback_dispatch *dispatch,
-		      struct evdev_device *device,
-		      uint64_t time)
-{
-	struct normalized_coords wheel_degrees = { 0.0, 0.0 };
-	struct discrete_coords discrete = { 0.0, 0.0 };
-	struct wheel_v120 v120 = { 0.0, 0.0 };
-
-	if (!(device->seat_caps & EVDEV_DEVICE_POINTER))
-		return;
-
-	if (!dispatch->wheel.emulate_hi_res_wheel &&
-	    !dispatch->wheel.hi_res_event_received &&
-	    (dispatch->wheel.lo_res.x != 0 || dispatch->wheel.lo_res.y != 0)) {
-		evdev_log_bug_kernel(device,
-				     "device supports high-resolution scroll but only low-resolution events have been received.\n"
-				     "See %s/incorrectly-enabled-hires.html for details\n",
-				     HTTP_DOC_LINK);
-		dispatch->wheel.emulate_hi_res_wheel = true;
-		dispatch->wheel.hi_res.x = dispatch->wheel.lo_res.x * 120;
-		dispatch->wheel.hi_res.y = dispatch->wheel.lo_res.y * 120;
-	}
-
-	if (dispatch->wheel.is_inhibited) {
-		dispatch->wheel.hi_res.x = 0;
-		dispatch->wheel.hi_res.y = 0;
-		dispatch->wheel.lo_res.x = 0;
-		dispatch->wheel.lo_res.y = 0;
-		return;
-	}
-
-	if (device->model_flags & EVDEV_MODEL_LENOVO_SCROLLPOINT) {
-		struct normalized_coords unaccel = { 0.0, 0.0 };
-
-		dispatch->wheel.hi_res.y *= -1;
-		normalize_delta(device, &dispatch->wheel.hi_res, &unaccel);
-		evdev_post_scroll(device,
-				  time,
-				  LIBINPUT_POINTER_AXIS_SOURCE_CONTINUOUS,
-				  &unaccel);
-		dispatch->wheel.hi_res.x = 0;
-		dispatch->wheel.hi_res.y = 0;
-
-		return;
-	}
-
-	if (dispatch->wheel.hi_res.y != 0) {
-		int value = dispatch->wheel.hi_res.y;
-
-		v120.y = -1 * value;
-		wheel_degrees.y = -1 * value/120.0 * device->scroll.wheel_click_angle.y;
-		evdev_notify_axis_wheel(
-			device,
-			time,
-			bit(LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL),
-			&wheel_degrees,
-			&v120);
-		dispatch->wheel.hi_res.y = 0;
-	}
-
-	if (dispatch->wheel.lo_res.y != 0) {
-		int value = dispatch->wheel.lo_res.y;
-
-		wheel_degrees.y = -1 * value * device->scroll.wheel_click_angle.y;
-		discrete.y = -1 * value;
-		evdev_notify_axis_legacy_wheel(
-			device,
-			time,
-			bit(LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL),
-			&wheel_degrees,
-			&discrete);
-		dispatch->wheel.lo_res.y = 0;
-	}
-
-	if (dispatch->wheel.hi_res.x != 0) {
-		int value = dispatch->wheel.hi_res.x;
-
-		v120.x = value;
-		wheel_degrees.x = value/120.0 * device->scroll.wheel_click_angle.x;
-		evdev_notify_axis_wheel(
-			device,
-			time,
-			bit(LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL),
-			&wheel_degrees,
-			&v120);
-		dispatch->wheel.hi_res.x = 0;
-	}
-
-	if (dispatch->wheel.lo_res.x != 0) {
-		int value = dispatch->wheel.lo_res.x;
-
-		wheel_degrees.x = value * device->scroll.wheel_click_angle.x;
-		discrete.x = value;
-		evdev_notify_axis_legacy_wheel(
-			device,
-			time,
-			bit(LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL),
-			&wheel_degrees,
-			&discrete);
-		dispatch->wheel.lo_res.x = 0;
-	}
 }
 
 static void
@@ -902,29 +778,9 @@ fallback_process_relative(struct fallback_dispatch *dispatch,
 		dispatch->rel.y += e->value;
 		dispatch->pending_event |= EVDEV_RELATIVE_MOTION;
 		break;
-	case REL_WHEEL:
-		dispatch->wheel.lo_res.y += e->value;
-		if (dispatch->wheel.emulate_hi_res_wheel)
-			dispatch->wheel.hi_res.y += e->value * 120;
-		dispatch->pending_event |= EVDEV_WHEEL;
-		break;
-	case REL_HWHEEL:
-		dispatch->wheel.lo_res.x += e->value;
-		if (dispatch->wheel.emulate_hi_res_wheel)
-			dispatch->wheel.hi_res.x += e->value * 120;
-		dispatch->pending_event |= EVDEV_WHEEL;
-		break;
-	case REL_WHEEL_HI_RES:
-		dispatch->wheel.hi_res.y += e->value;
-		dispatch->wheel.hi_res_event_received = true;
-		dispatch->pending_event |= EVDEV_WHEEL;
-		break;
-	case REL_HWHEEL_HI_RES:
-		dispatch->wheel.hi_res.x += e->value;
-		dispatch->wheel.hi_res_event_received = true;
-		dispatch->pending_event |= EVDEV_WHEEL;
-		break;
 	}
+
+	fallback_wheel_process_relative(dispatch, device, e, time);
 }
 
 static inline void
@@ -959,9 +815,11 @@ fallback_arbitrate_touch(struct fallback_dispatch *dispatch,
 			 struct mt_slot *slot)
 {
 	bool discard = false;
+	struct device_coords point = slot->point;
+	evdev_transform_absolute(dispatch->device, &point);
 
 	if (dispatch->arbitration.state == ARBITRATION_IGNORE_RECT &&
-	    point_in_rect(&slot->point, &dispatch->arbitration.rect)) {
+	    point_in_rect(&point, &dispatch->arbitration.rect)) {
 		slot->palm_state = PALM_IS_PALM;
 		discard = true;
 	}
@@ -1086,7 +944,7 @@ fallback_handle_state(struct fallback_dispatch *dispatch,
 	if (need_touch_frame)
 		touch_notify_frame(&device->base, time);
 
-	fallback_flush_wheels(dispatch, device, time);
+	fallback_wheel_handle_state(dispatch, device, time);
 
 	/* Buttons and keys */
 	if (dispatch->pending_event & EVDEV_KEY) {
@@ -1148,19 +1006,24 @@ cancel_touches(struct fallback_dispatch *dispatch,
 {
 	unsigned int idx;
 	bool need_frame = false;
+	struct device_coords point;
 
-	if (!rect || point_in_rect(&dispatch->abs.point, rect))
+	point = dispatch->abs.point;
+	evdev_transform_absolute(device, &point);
+	if (!rect || point_in_rect(&point, rect))
 		need_frame = fallback_flush_st_cancel(dispatch,
 						      device,
 						      time);
 
 	for (idx = 0; idx < dispatch->mt.slots_len; idx++) {
 		struct mt_slot *slot = &dispatch->mt.slots[idx];
+		point = slot->point;
+		evdev_transform_absolute(device, &point);
 
 		if (slot->seat_slot == -1)
 			continue;
 
-		if ((!rect || point_in_rect(&slot->point, rect)) &&
+		if ((!rect || point_in_rect(&point, rect)) &&
 		    fallback_flush_mt_cancel(dispatch, device, idx, time))
 			need_frame = true;
 	}
@@ -1250,6 +1113,7 @@ fallback_interface_remove(struct evdev_dispatch *evdev_dispatch)
 	struct fallback_dispatch *dispatch = fallback_dispatch(evdev_dispatch);
 	struct evdev_paired_keyboard *kbd;
 
+	libinput_timer_cancel(&dispatch->wheel.scroll_timer);
 	libinput_timer_cancel(&dispatch->debounce.timer);
 	libinput_timer_cancel(&dispatch->debounce.timer_short);
 	libinput_timer_cancel(&dispatch->arbitration.arbitration_timer);
@@ -1366,6 +1230,7 @@ fallback_interface_destroy(struct evdev_dispatch *evdev_dispatch)
 {
 	struct fallback_dispatch *dispatch = fallback_dispatch(evdev_dispatch);
 
+	libinput_timer_destroy(&dispatch->wheel.scroll_timer);
 	libinput_timer_destroy(&dispatch->arbitration.arbitration_timer);
 	libinput_timer_destroy(&dispatch->debounce.timer);
 	libinput_timer_destroy(&dispatch->debounce.timer_short);
@@ -1635,7 +1500,7 @@ static void
 fallback_init_rotation(struct fallback_dispatch *dispatch,
 		       struct evdev_device *device)
 {
-	if ((device->model_flags & EVDEV_MODEL_TRACKBALL) == 0)
+	if (device->tags & EVDEV_TAG_TRACKPOINT)
 		return;
 
 	dispatch->rotation.config.is_available = fallback_rotation_config_is_available;
@@ -1837,22 +1702,7 @@ fallback_dispatch_create(struct libinput_device *libinput_device)
 					want_config);
 	}
 
-	/* On kernel < 5.0 we need to emulate high-resolution
-	   wheel scroll events */
-	if ((libevdev_has_event_code(device->evdev,
-				     EV_REL,
-				     REL_WHEEL) &&
-	     !libevdev_has_event_code(device->evdev,
-				      EV_REL,
-				      REL_WHEEL_HI_RES)) ||
-	    (libevdev_has_event_code(device->evdev,
-				     EV_REL,
-				     REL_HWHEEL) &&
-	     !libevdev_has_event_code(device->evdev,
-				      EV_REL,
-				     REL_HWHEEL_HI_RES)))
-	    dispatch->wheel.emulate_hi_res_wheel = true;
-
+	fallback_init_wheel(dispatch, device);
 	fallback_init_debounce(dispatch);
 	fallback_init_arbitration(dispatch, device);
 
