@@ -1,3 +1,67 @@
+libinput (1.23.0-2) unstable; urgency=medium
+
+  * debian/control:
+    + Update standards version to 4.6.2, no changes needed.
+    + Add myself to uploaders
+  * doc/html is no longer included in source tarball, drop exclude
+    of non existing doc/html path
+  * Upstream no longer sign releases, drop signing-key
+
+ -- Marius Gripsgard <marius@ubports.com>  Wed, 14 Jun 2023 02:30:14 +0200
+
+libinput (1.23.0-1) unstable; urgency=medium
+
+  * New upstream release v1.23.0
+  * Update symbols to match upstream release
+
+ -- Marius Gripsgard <marius@ubports.com>  Wed, 31 May 2023 17:46:49 +0200
+
+libinput (1.22.1-1) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * debian/copyright: use spaces rather than tabs to start continuation lines.
+  * Use secure URI in Homepage field.
+  * Bump debhelper from old 12 to 13.
+    + debian/rules: Drop --fail-missing argument to dh_missing, which is now the
+      default.
+  * Set upstream metadata fields: Bug-Database, Bug-Submit, Repository-Browse.
+  * Update standards version to 4.6.1, no changes needed.
+  * Replace use of deprecated $ADTTMP with $AUTOPKGTEST_TMP.
+
+  [ Marius Gripsgard ]
+  * New upstream release v1.22.1
+
+ -- Marius Gripsgard <marius@ubports.com>  Wed, 25 Jan 2023 15:46:49 +0100
+
+libinput (1.22.0-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Timo Aaltonen <tjaalton@debian.org>  Tue, 22 Nov 2022 14:10:13 +0200
+
+libinput (1.21.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * debian/libinput10.symbols: update
+  * debian/rules: improve clean target
+
+ -- Héctor Orón Martínez <zumbi@debian.org>  Thu, 23 Jun 2022 01:07:16 +0200
+
+libinput (1.20.1-1) unstable; urgency=medium
+
+  * New upstream release.
+    - CVE-2020-1215
+
+ -- Timo Aaltonen <tjaalton@debian.org>  Wed, 20 Apr 2022 10:02:34 +0300
+
+libinput (1.20.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * watch: Updated to use gitlab tags, though signing checks had to be
+    disabled.
+
+ -- Timo Aaltonen <tjaalton@debian.org>  Tue, 22 Feb 2022 15:24:35 +0200
+
 libinput (1.19.3-2) unstable; urgency=medium
 
   * Rebuild against new libwacom.
